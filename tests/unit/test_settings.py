@@ -31,6 +31,37 @@ def test_settings_rejects_empty_key(monkeypatch):
         Settings(_env_file=None)
 
 
+def test_settings_loads_context_defaults(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-key")
+    monkeypatch.setenv("GROQ_API_KEY", "groq-test-key")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.context_token_budget == 2500
+    assert settings.max_context_sources == 6
+    assert settings.content_fetch_timeout_seconds == 10.0
+
+
+@pytest.mark.parametrize(
+    "field, invalid_value",
+    [
+        ("CONTEXT_TOKEN_BUDGET", "1000"),  # must be > 1000, not >=
+        ("CONTEXT_TOKEN_BUDGET", "500"),
+        ("MAX_CONTEXT_SOURCES", "0"),
+        ("MAX_CONTEXT_SOURCES", "-1"),
+        ("CONTENT_FETCH_TIMEOUT_SECONDS", "0"),
+        ("CONTENT_FETCH_TIMEOUT_SECONDS", "-5"),
+    ],
+)
+def test_settings_rejects_out_of_range_context_values(monkeypatch, field, invalid_value):
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-key")
+    monkeypatch.setenv("GROQ_API_KEY", "groq-test-key")
+    monkeypatch.setenv(field, invalid_value)
+
+    with pytest.raises(Exception):
+        Settings(_env_file=None)
+
+
 def test_get_settings_is_cached(monkeypatch):
     monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-key")
     monkeypatch.setenv("GROQ_API_KEY", "groq-test-key")

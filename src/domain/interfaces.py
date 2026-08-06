@@ -48,8 +48,8 @@ class LLMProvider(ABC):
 class Ranker(ABC):
     """Scores and orders deduplicated search results. Not async: this is
     pure in-memory computation (keyword overlap, recency, provider score),
-    not I/O - see architecture doc 6.4 for why this starts as a heuristic
-    rather than an embedding-based reranker.
+    not I/O - see docs/decisions.md, 1.4, for why this starts as a
+    heuristic rather than an embedding-based reranker.
     """
 
     @abstractmethod
@@ -67,6 +67,18 @@ class Evaluator(ABC):
     async def evaluate(
         self, question: str, answer: str, contexts: list[str]
     ) -> EvaluationResult: ...
+
+
+class ContentExtractor(ABC):
+    """Fetches a URL and extracts its main text content (trafilatura
+    today; readability or others later - see docs/architecture.md's
+    component table). async because it's a network fetch; returns None
+    on any failure (unreachable page, extraction found nothing usable)
+    so callers can fall back to a snippet instead of crashing.
+    """
+
+    @abstractmethod
+    async def extract(self, url: str) -> str | None: ...
 
 
 class Cache(ABC):

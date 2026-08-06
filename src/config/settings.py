@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     search_timeout_seconds: float = Field(default=10.0, gt=0)
     max_search_results: int = Field(default=5, gt=0)
 
+    context_token_budget: int = Field(default=2500, gt=1000)
+    max_context_sources: int = Field(default=6, gt=0)
+    content_fetch_timeout_seconds: float = Field(default=10.0, gt=0)
+
 
 @lru_cache
 def get_settings() -> Settings:
