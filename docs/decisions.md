@@ -4,6 +4,159 @@ Related docs: [Architecture](architecture.md) · [Roadmap & checklist](roadmap.m
 
 ---
 
+## 0. Implemented Decisions (by phase)
+
+Everything below section 1 is a **design decision made before writing the
+corresponding code** - still accurate as *intent* for phases 3–14, which
+aren't built yet. This section is different: it's decisions actually made
+*during* implementation for phases that are done, including places where
+reality corrected the plan. New entries get added here as each phase
+completes; nothing here is retroactively rewritten.
+
+### Decision 0.1
+
+Date: 2026-08-06
+
+Implemented:
+`Settings` fields use `Field(..., min_length=1)`, not just `Field(...)`.
+
+Reason:
+- `pydantic-settings` treats an empty environment variable as a present,
+  valid string - not a missing one.
+- Without `min_length=1`, `GROQ_API_KEY=` (empty) would pass validation
+  and fail confusingly later, deep inside whichever component first tried
+  to use it.
+
+### Decision 0.2
+
+Date: 2026-08-06
+
+Implemented:
+Per-turn correlation ID uses `contextvars.ContextVar`, not a module-level
+global variable.
+
+Reason:
+- The pipeline runs concurrent I/O (search fan-out via `asyncio.gather`
+  starting Phase 2, more later) inside a single process.
+- A plain global would let concurrent tasks overwrite each other's turn ID;
+  a `ContextVar` keeps each concurrent call's value isolated.
+
+### Decision 1.1
+
+Date: 2026-08-06
+
+Implemented:
+`Query.sub_queries` is typed `tuple[str, ...]`, not `list[str]`.
+
+Reason:
+- `frozen=True` only blocks reassigning a field, not mutating an object it
+  points to - a `list` field could still be `.append()`-ed to, silently
+  bypassing the 1-5 invariant after construction.
+- The dataclass's generated `__hash__` (from `frozen=True`) requires every
+  field to be hashable; `list` isn't, `tuple` is.
+
+### Decision 1.2
+
+Date: 2026-08-06
+
+Implemented:
+The 1-5 sub-query bound is enforced in `Query.__post_init__`, raising
+`ValueError` outside that range - not left to planner-prompt wording alone.
+
+Reason:
+- An out-of-range `Query` becomes impossible to construct regardless of
+  which future code path builds one, including bugs in the Phase 5
+  planner we haven't written yet.
+
+### Decision 1.3
+
+Date: 2026-08-06
+
+Implemented:
+Domain ports (`SearchProvider`, `LLMProvider`, `Ranker`, `Evaluator`,
+`Cache`) are `abc.ABC` with `@abstractmethod`, not `typing.Protocol`.
+
+Reason:
+- ABCs are nominal and enforced at runtime: instantiating an incomplete
+  implementation raises `TypeError` immediately.
+- `Protocol` is structural and only checked by static type-checkers -
+  explicit `class Foo(SearchProvider):` inheritance also makes the
+  dependency visible directly in the code.
+
+### Decision 1.4
+
+Date: 2026-08-06
+
+Implemented:
+`LLMProvider.generate_structured`'s schema parameter is an unbound
+`TypeVar`, not one bound to `pydantic.BaseModel`.
+
+Reason:
+- Keeps `domain/` free of any external dependency, even though the
+  concrete Groq client (later phase) will pass Pydantic schemas at
+  call sites.
+
+### Decision 2.1
+
+Date: 2026-08-06
+
+Implemented:
+`SearchOrchestrator.search_all()` accepts a `Query` entity instead of
+`list[str]`.
+
+Reason:
+- Already validated (reuses the 1-5 invariant from Decision 1.2)
+- Documents exactly where this class sits in the pipeline (right after
+  planning)
+- Self-describing signature over a "stringly-typed" list
+
+### Decision 2.2
+
+Date: 2026-08-06
+
+Implemented:
+`SearchOrchestrator` enforces its own per-query timeout via
+`asyncio.wait_for`, rather than trusting each `SearchProvider`
+implementation to enforce one internally.
+
+Reason:
+- Guarantees a bound regardless of what a given provider's SDK does -
+  even if a future provider forgets to configure a timeout, the
+  orchestrator's still applies.
+- `asyncio.gather(..., return_exceptions=True)` then handles a timeout
+  exactly like any other failure, with no extra branching.
+
+### Decision 2.3
+
+Date: 2026-08-06
+
+Implemented:
+No custom exception types (`SearchProviderError`, etc.) introduced yet -
+whatever exception `tavily-python` raises natively propagates as-is.
+
+Reason:
+- Typed exceptions per layer are explicitly scoped to Phase 10 in the
+  roadmap. Adding them now would be speculative infrastructure ahead of
+  the need, for a class of problem (retries, error translation) that
+  doesn't exist until Phase 10's resilience work.
+
+### Decision 2.4
+
+Date: 2026-08-06
+
+Implemented:
+The gated Tavily integration test reads `TAVILY_API_KEY` directly via
+`python-dotenv`, instead of going through `get_settings()`.
+
+Reason:
+- Found *during* Phase 2: `get_settings()` validates the entire app
+  config, including `GROQ_API_KEY` - which was still empty (not needed
+  until Phase 5/6) and made a Tavily-only test fail for an unrelated
+  reason.
+- A test should only depend on what it actually exercises.
+
+---
+
 ## 1. Key design decisions
 
 **1.1 One combined Groq call for intent + query generation, not two.**
