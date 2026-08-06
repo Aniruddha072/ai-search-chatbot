@@ -18,9 +18,9 @@ for reference; it is not part of the active codebase.
 
 Clean architecture, inner layers depending on nothing outward:
 
-- **`src/domain/`** — entities (`Query`, `SearchResult`, `Source`, `Answer`, `EvaluationResult`) and interfaces (`SearchProvider`, `LLMProvider`, `Ranker`, `Evaluator`, `Cache`). No I/O, no external libraries.
-- **`src/application/`** — orchestration logic that depends only on the interfaces above. `SearchOrchestrator`, `Deduplicator`, `HeuristicRanker` implemented; the rest is not yet.
-- **`src/infrastructure/`** — concrete adapters (Tavily, Groq, RAGAS, cache) implementing those interfaces. `TavilyProvider` implemented; the rest is not yet.
+- **`src/domain/`** — entities (`Query`, `SearchResult`, `Source`, `Answer`, `EvaluationResult`) and interfaces (`SearchProvider`, `LLMProvider`, `Ranker`, `Evaluator`, `ContentExtractor`, `Cache`). No I/O, no external libraries.
+- **`src/application/`** — orchestration logic that depends only on the interfaces above. `SearchOrchestrator`, `Deduplicator`, `HeuristicRanker`, `ContextBuilder` implemented; the rest is not yet.
+- **`src/infrastructure/`** — concrete adapters (Tavily, Groq, RAGAS, cache) implementing those interfaces. `TavilyProvider`, `TrafilaturaContentExtractor` implemented; the rest is not yet.
 - **`src/presentation/`** — CLI entry point. Not yet implemented.
 
 Full pipeline diagram and component responsibilities: [`docs/architecture.md`](docs/architecture.md).
@@ -31,7 +31,7 @@ Full pipeline diagram and component responsibilities: [`docs/architecture.md`](d
 - [x] Phase 1 — Domain layer
 - [x] Phase 2 — Search integration
 - [x] Phase 3 — Dedup + ranking
-- [ ] Phase 4 — Context building
+- [x] Phase 4 — Context building
 - [ ] Phase 5 — Query planning
 - [ ] Phase 6 — Answer generation
 - [ ] Phase 7 — Pipeline wiring
@@ -49,24 +49,27 @@ Full pipeline diagram and component responsibilities: [`docs/architecture.md`](d
 src/
 ├── domain/
 │   ├── entities.py       # Query, SearchResult, Source, Answer, EvaluationResult
-│   └── interfaces.py     # SearchProvider, LLMProvider, Ranker, Evaluator, Cache
+│   └── interfaces.py     # SearchProvider, LLMProvider, Ranker, Evaluator, ContentExtractor, Cache
 ├── application/
 │   ├── search_orchestrator.py  # concurrent fan-out over a SearchProvider, per-query timeout
 │   ├── deduplicator.py         # URL normalization + near-duplicate content passes
-│   └── ranker.py               # HeuristicRanker: weighted provider/keyword/recency scoring
+│   ├── ranker.py               # HeuristicRanker: weighted provider/keyword/recency scoring
+│   └── context_builder.py      # top-K selection, thin-snippet full-fetch, token-budget enforcement
 ├── infrastructure/
 │   ├── search/
 │   │   └── tavily_provider.py  # implements SearchProvider via Tavily's async client
 │   ├── llm/                (empty)
 │   ├── evaluation/        (empty)
 │   ├── cache/              (empty)
-│   └── content/           (empty)
+│   └── content/
+│       └── content_extractor.py  # TrafilaturaContentExtractor implements ContentExtractor
 ├── config/
 │   ├── settings.py       # pydantic-settings, validated env config
 │   └── prompts/            (empty)
 ├── presentation/          (empty)
 └── utils/
-    └── logging.py        # structured logging with per-turn correlation IDs
+    ├── logging.py        # structured logging with per-turn correlation IDs
+    └── token_counter.py  # approximate token counting (char-based heuristic)
 
 tests/
 ├── unit/
@@ -77,7 +80,10 @@ tests/
 │   ├── test_tavily_provider.py
 │   ├── test_search_orchestrator.py
 │   ├── test_deduplicator.py
-│   └── test_ranker.py
+│   ├── test_ranker.py
+│   ├── test_token_counter.py
+│   ├── test_content_extractor.py
+│   └── test_context_builder.py
 └── integration/
     └── test_tavily_search.py   # real Tavily call, gated behind RUN_INTEGRATION_TESTS=1
 ```

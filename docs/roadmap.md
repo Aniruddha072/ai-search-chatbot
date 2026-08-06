@@ -94,12 +94,12 @@ Each box is independently completable and independently testable.
 - [x] Unit tests with fixture result sets containing intentional duplicates
 
 ### Phase 4 — Context building
-- [ ] `utils/token_counter.py`: token counting helper (tiktoken or model-appropriate tokenizer)
-- [ ] `application/context_builder.py`: top-K selection from ranked results
-- [ ] `application/context_builder.py`: thin-snippet detection rule triggering full-fetch
-- [ ] `infrastructure/content/content_extractor.py`: fetch + extract main content (trafilatura), thread-offloaded
-- [ ] `application/context_builder.py`: token-budget enforcement with per-source truncation
-- [ ] Unit tests: budget enforcement never exceeds the configured cap
+- [x] `utils/token_counter.py`: token counting helper (tiktoken or model-appropriate tokenizer)
+- [x] `application/context_builder.py`: top-K selection from ranked results
+- [x] `application/context_builder.py`: thin-snippet detection rule triggering full-fetch
+- [x] `infrastructure/content/content_extractor.py`: fetch + extract main content (trafilatura), thread-offloaded
+- [x] `application/context_builder.py`: token-budget enforcement with per-source truncation
+- [x] Unit tests: budget enforcement never exceeds the configured cap
 
 ### Phase 5 — Query planning
 - [ ] `config/prompts/query_planning.py`: prompt + JSON schema (intent, complexity, queries[1..5])

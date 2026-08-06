@@ -207,6 +207,78 @@ Reason:
   actually asked, not the decomposed search string that happened to
   retrieve a given result.
 
+### Decision 4.1
+
+Date: 2026-08-06
+
+Implemented:
+Token counting uses a `len(text) // 4` character heuristic, not tiktoken.
+
+Reason:
+- Measured, not assumed: `tiktoken.get_encoding("cl100k_base")` took 15.5
+  seconds on first call (it silently downloads its vocabulary file over
+  the network), ~0.26s cached after. A hidden network dependency and
+  15-second cold start is a real cost for a project explicitly about
+  minimizing latency.
+- Groq serves Llama models, which don't have a public tiktoken encoding
+  anyway - cl100k_base would only be an approximation here too, so
+  tiktoken isn't actually more correct, just heavier.
+
+### Decision 4.2
+
+Date: 2026-08-06
+
+Implemented:
+`ContentExtractor` is a domain interface (`abc.ABC`); `Deduplicator`
+(Phase 3) is not.
+
+Reason:
+- The architecture doc explicitly names a real future swap (trafilatura
+  vs. readability) for content extraction - it names no such alternative
+  for deduplication. Same test as Decision 3.1, opposite outcome.
+
+### Decision 4.3
+
+Date: 2026-08-06
+
+Implemented:
+`ContextBuilder.build()` takes only `list[SearchResult]`, not a `Query`.
+
+Reason:
+- Decision 1.3's "or the query is comparison-heavy" full-fetch trigger
+  needs `Query.complexity` semantics that don't exist until Phase 5's
+  planner defines them. Only the snippet-length trigger is implemented
+  now; the complexity-based one is deferred, not abandoned.
+
+### Decision 4.4
+
+Date: 2026-08-06
+
+Implemented:
+The per-fetch timeout lives in `ContextBuilder`, not
+`TrafilaturaContentExtractor`.
+
+Reason:
+- Same separation Decision 2.2 established for `SearchOrchestrator`/
+  `TavilyProvider` - reused rather than re-derived, so every
+  infrastructure adapter stays timeout-agnostic and every
+  orchestration-layer class enforces its own bound.
+
+### Decision 4.5
+
+Date: 2026-08-06
+
+Implemented:
+`context_token_budget`, `max_context_sources`, and
+`content_fetch_timeout_seconds` are `Settings` fields, not constructor
+defaults.
+
+Reason:
+- Unlike Phase 3's ranking weights (internal scoring heuristics), these
+  directly control cost/latency/how-much-reaches-the-LLM - the same
+  category Phase 2's `search_timeout_seconds`/`max_search_results` are
+  already in.
+
 ---
 
 ## 1. Key design decisions
