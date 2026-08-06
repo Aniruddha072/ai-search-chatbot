@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     max_context_sources: int = Field(default=6, gt=0)
     content_fetch_timeout_seconds: float = Field(default=10.0, gt=0)
 
+    groq_fast_model: str = Field(default="llama-3.1-8b-instant", min_length=1)
+    groq_capable_model: str = Field(default="llama-3.3-70b-versatile", min_length=1)
+    llm_timeout_seconds: float = Field(default=10.0, gt=0)
+
 
 @lru_cache
 def get_settings() -> Settings:
