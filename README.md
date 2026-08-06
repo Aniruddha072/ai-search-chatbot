@@ -7,7 +7,8 @@ Full architecture, design decisions, and the phased roadmap live in
 [`docs/`](docs/) — see [`docs/architecture.md`](docs/architecture.md),
 [`docs/decisions.md`](docs/decisions.md), and
 [`docs/roadmap.md`](docs/roadmap.md). Build notes for each completed phase
-are in [`docs/phases/`](docs/phases/).
+are in [`docs/phases/`](docs/phases/); a session-by-session dev journal is
+in [`DEVLOG.md`](DEVLOG.md).
 
 An earlier learning prototype (LangChain `create_agent` + Tavily + Gemini)
 is preserved as-is in
