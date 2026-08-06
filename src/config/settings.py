@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO")
     environment: str = Field(default="development")
 
+    search_timeout_seconds: float = Field(default=10.0, gt=0)
+    max_search_results: int = Field(default=5, gt=0)
+
 
 @lru_cache
 def get_settings() -> Settings:
