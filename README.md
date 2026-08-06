@@ -19,8 +19,8 @@ for reference; it is not part of the active codebase.
 Clean architecture, inner layers depending on nothing outward:
 
 - **`src/domain/`** — entities (`Query`, `SearchResult`, `Source`, `Answer`, `EvaluationResult`) and interfaces (`SearchProvider`, `LLMProvider`, `Ranker`, `Evaluator`, `ContentExtractor`, `Cache`). No I/O, no external libraries.
-- **`src/application/`** — orchestration logic that depends only on the interfaces above. `SearchOrchestrator`, `Deduplicator`, `HeuristicRanker`, `ContextBuilder` implemented; the rest is not yet.
-- **`src/infrastructure/`** — concrete adapters (Tavily, Groq, RAGAS, cache) implementing those interfaces. `TavilyProvider`, `TrafilaturaContentExtractor` implemented; the rest is not yet.
+- **`src/application/`** — orchestration logic that depends only on the interfaces above. `SearchOrchestrator`, `Deduplicator`, `HeuristicRanker`, `ContextBuilder`, `QueryPlanner` implemented; the rest is not yet.
+- **`src/infrastructure/`** — concrete adapters (Tavily, Groq, RAGAS, cache) implementing those interfaces. `TavilyProvider`, `TrafilaturaContentExtractor`, `GroqClient` implemented; the rest is not yet.
 - **`src/presentation/`** — CLI entry point. Not yet implemented.
 
 Full pipeline diagram and component responsibilities: [`docs/architecture.md`](docs/architecture.md).
@@ -32,7 +32,7 @@ Full pipeline diagram and component responsibilities: [`docs/architecture.md`](d
 - [x] Phase 2 — Search integration
 - [x] Phase 3 — Dedup + ranking
 - [x] Phase 4 — Context building
-- [ ] Phase 5 — Query planning
+- [x] Phase 5 — Query planning
 - [ ] Phase 6 — Answer generation
 - [ ] Phase 7 — Pipeline wiring
 - [ ] Phase 8 — RAGAS evaluation
@@ -54,18 +54,22 @@ src/
 │   ├── search_orchestrator.py  # concurrent fan-out over a SearchProvider, per-query timeout
 │   ├── deduplicator.py         # URL normalization + near-duplicate content passes
 │   ├── ranker.py               # HeuristicRanker: weighted provider/keyword/recency scoring
-│   └── context_builder.py      # top-K selection, thin-snippet full-fetch, token-budget enforcement
+│   ├── context_builder.py      # top-K selection, thin-snippet full-fetch, token-budget enforcement
+│   └── query_planner.py        # Groq structured-output call -> Query, with single-query fallback
 ├── infrastructure/
 │   ├── search/
 │   │   └── tavily_provider.py  # implements SearchProvider via Tavily's async client
-│   ├── llm/                (empty)
+│   ├── llm/
+│   │   └── groq_client.py      # implements LLMProvider (generate + generate_structured)
 │   ├── evaluation/        (empty)
 │   ├── cache/              (empty)
 │   └── content/
 │       └── content_extractor.py  # TrafilaturaContentExtractor implements ContentExtractor
 ├── config/
 │   ├── settings.py       # pydantic-settings, validated env config
-│   └── prompts/            (empty)
+│   └── prompts/
+│       ├── query_planner.txt    # system prompt text, plain text, not Python
+│       └── query_planning.py    # loads the .txt + QueryPlanResponse schema
 ├── presentation/          (empty)
 └── utils/
     ├── logging.py        # structured logging with per-turn correlation IDs
@@ -83,9 +87,12 @@ tests/
 │   ├── test_ranker.py
 │   ├── test_token_counter.py
 │   ├── test_content_extractor.py
-│   └── test_context_builder.py
+│   ├── test_context_builder.py
+│   ├── test_groq_client.py
+│   └── test_query_planner.py
 └── integration/
-    └── test_tavily_search.py   # real Tavily call, gated behind RUN_INTEGRATION_TESTS=1
+    ├── test_tavily_search.py   # real Tavily call, gated behind RUN_INTEGRATION_TESTS=1
+    └── test_query_planner.py   # real Groq call, gated behind RUN_INTEGRATION_TESTS=1
 ```
 
 ## Setup

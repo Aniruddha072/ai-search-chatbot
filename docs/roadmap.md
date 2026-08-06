@@ -102,11 +102,11 @@ Each box is independently completable and independently testable.
 - [x] Unit tests: budget enforcement never exceeds the configured cap
 
 ### Phase 5 — Query planning
-- [ ] `config/prompts/query_planning.py`: prompt + JSON schema (intent, complexity, queries[1..5])
-- [ ] `infrastructure/llm/groq_client.py`: structured-output call method using the fast model
-- [ ] `application/query_planner.py`: call + schema validation + hard cap/floor enforcement (1–5)
-- [ ] Fallback path: on planner failure, fall back to a single query = raw user input
-- [ ] Unit tests: mocked Groq responses covering valid, malformed, and over-5-queries cases
+- [x] `config/prompts/query_planning.py`: prompt + JSON schema (intent, complexity, queries[1..5])
+- [x] `infrastructure/llm/groq_client.py`: structured-output call method using the fast model
+- [x] `application/query_planner.py`: call + schema validation + hard cap/floor enforcement (1–5)
+- [x] Fallback path: on planner failure, fall back to a single query = raw user input
+- [x] Unit tests: mocked Groq responses covering valid, malformed, and over-5-queries cases
 
 ### Phase 6 — Answer generation
 - [ ] `config/prompts/answer_generation.py`: grounded/cite-or-refuse system prompt

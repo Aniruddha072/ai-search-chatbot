@@ -279,6 +279,81 @@ Reason:
   category Phase 2's `search_timeout_seconds`/`max_search_results` are
   already in.
 
+### Decision 5.1
+
+Date: 2026-08-06
+
+Implemented:
+Query planning uses `llama-3.1-8b-instant` with `response_format:
+json_object` + Pydantic validation, not `openai/gpt-oss-20b` with strict
+`json_schema` mode.
+
+Reason:
+- Verified live: neither `llama-3.1-8b-instant` nor `llama-3.3-70b-versatile`
+  (the models Decision 1.5 already named) support Groq's strict
+  `json_schema` response format - only the `openai/gpt-oss-*` models do.
+- Tested the alternative before ruling it out: a raw `model_json_schema()`
+  dump in the prompt caused `llama-3.1-8b-instant` to echo schema
+  metadata as if it were the answer (2/3 test questions failed). A
+  hand-written natural-language prompt + one example fixed it to 3/3.
+- The roadmap already mandates a fallback path for malformed planner
+  output, so `json_object` mode's smaller residual non-conformance risk
+  isn't actually uncovered - keeping Decision 1.5's original model choice
+  won out over chasing API-enforced strictness.
+
+### Decision 5.2
+
+Date: 2026-08-06
+
+Implemented:
+`GroqClient.generate()` (capable model, plain text) is fully implemented
+in Phase 5, even though nothing calls it until Phase 6.
+
+Reason:
+- `abc.ABC` requires every `@abstractmethod` overridden before a class
+  can be instantiated at all - there's no such thing as a partially
+  implemented `LLMProvider`. This isn't building ahead into Phase 6, it's
+  satisfying a contract Phase 1 already wrote in full.
+
+### Decision 5.3
+
+Date: 2026-08-06
+
+Implemented:
+The new Groq-call timeout setting is named `llm_timeout_seconds`, not
+something query-planning-specific.
+
+Reason:
+- Phase 6's `AnswerGenerator` will need the identical kind of timeout
+  around its own Groq call - one generically-named field covers both
+  instead of adding a near-duplicate later.
+
+### Decision 5.4
+
+Date: 2026-08-06
+
+Implemented:
+The 1-5 sub-query bound is enforced twice: `QueryPlanResponse.queries`
+(Pydantic `max_length=5`) and `Query.__post_init__` (Decision 1.2).
+
+Reason:
+- Neither layer trusts the other to have already checked. A >5-query
+  Groq response is rejected at the schema layer before a domain `Query`
+  is ever constructed from it.
+
+### Decision 5.5
+
+Date: 2026-08-06
+
+Implemented:
+The query-planning system prompt lives in `query_planner.txt`, not a
+Python string constant.
+
+Reason:
+- Prompt wording can be edited without touching code - explicitly
+  requested, and a pattern worth continuing for future prompts (Phase 6's
+  answer-generation prompt).
+
 ---
 
 ## 1. Key design decisions
