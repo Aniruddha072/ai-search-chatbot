@@ -155,6 +155,58 @@ Reason:
   reason.
 - A test should only depend on what it actually exercises.
 
+### Decision 3.1
+
+Date: 2026-08-06
+
+Implemented:
+`Deduplicator` has no ABC/interface, unlike `SearchProvider`, `LLMProvider`,
+`Ranker`, `Evaluator`, and `Cache`.
+
+Reason:
+- There's no second deduplication strategy this project plans to swap in
+  later - an interface with only one implementation ever planned is an
+  abstraction paying for flexibility nobody asked for.
+
+### Decision 3.2
+
+Date: 2026-08-06
+
+Implemented:
+Dedup similarity threshold and the three `HeuristicRanker` weights are
+constructor-default constants, not `Settings` fields.
+
+Reason:
+- They're internal scoring heuristics, not ops-level configuration.
+- No evidence yet exists about which values are actually better - that's
+  literally what Phase 8's RAGAS scores are for.
+
+### Decision 3.3
+
+Date: 2026-08-06
+
+Implemented:
+Keyword overlap in `HeuristicRanker` uses plain token-set overlap, not
+TF-IDF.
+
+Reason:
+- TF-IDF needs a document corpus to compute meaningful
+  inverse-document-frequency; ~10-20 results per query isn't one.
+
+### Decision 3.4
+
+Date: 2026-08-06
+
+Implemented:
+`Ranker.rank()` scores each result against the *original* user query, not
+the sub-query that produced it.
+
+Reason:
+- Matches the `Ranker.rank(results, original_query)` signature already
+  fixed in Phase 1 - relevance should be judged against what the user
+  actually asked, not the decomposed search string that happened to
+  retrieve a given result.
+
 ---
 
 ## 1. Key design decisions

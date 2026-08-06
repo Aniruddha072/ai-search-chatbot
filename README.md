@@ -19,7 +19,7 @@ for reference; it is not part of the active codebase.
 Clean architecture, inner layers depending on nothing outward:
 
 - **`src/domain/`** — entities (`Query`, `SearchResult`, `Source`, `Answer`, `EvaluationResult`) and interfaces (`SearchProvider`, `LLMProvider`, `Ranker`, `Evaluator`, `Cache`). No I/O, no external libraries.
-- **`src/application/`** — orchestration logic that depends only on the interfaces above. `SearchOrchestrator` implemented; the rest is not yet.
+- **`src/application/`** — orchestration logic that depends only on the interfaces above. `SearchOrchestrator`, `Deduplicator`, `HeuristicRanker` implemented; the rest is not yet.
 - **`src/infrastructure/`** — concrete adapters (Tavily, Groq, RAGAS, cache) implementing those interfaces. `TavilyProvider` implemented; the rest is not yet.
 - **`src/presentation/`** — CLI entry point. Not yet implemented.
 
@@ -30,7 +30,7 @@ Full pipeline diagram and component responsibilities: [`docs/architecture.md`](d
 - [x] Phase 0 — Project scaffolding
 - [x] Phase 1 — Domain layer
 - [x] Phase 2 — Search integration
-- [ ] Phase 3 — Dedup + ranking
+- [x] Phase 3 — Dedup + ranking
 - [ ] Phase 4 — Context building
 - [ ] Phase 5 — Query planning
 - [ ] Phase 6 — Answer generation
@@ -51,7 +51,9 @@ src/
 │   ├── entities.py       # Query, SearchResult, Source, Answer, EvaluationResult
 │   └── interfaces.py     # SearchProvider, LLMProvider, Ranker, Evaluator, Cache
 ├── application/
-│   └── search_orchestrator.py  # concurrent fan-out over a SearchProvider, per-query timeout
+│   ├── search_orchestrator.py  # concurrent fan-out over a SearchProvider, per-query timeout
+│   ├── deduplicator.py         # URL normalization + near-duplicate content passes
+│   └── ranker.py               # HeuristicRanker: weighted provider/keyword/recency scoring
 ├── infrastructure/
 │   ├── search/
 │   │   └── tavily_provider.py  # implements SearchProvider via Tavily's async client
@@ -73,7 +75,9 @@ tests/
 │   ├── test_entities.py
 │   ├── test_interfaces.py
 │   ├── test_tavily_provider.py
-│   └── test_search_orchestrator.py
+│   ├── test_search_orchestrator.py
+│   ├── test_deduplicator.py
+│   └── test_ranker.py
 └── integration/
     └── test_tavily_search.py   # real Tavily call, gated behind RUN_INTEGRATION_TESTS=1
 ```

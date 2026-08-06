@@ -87,11 +87,11 @@ Each box is independently completable and independently testable.
 - [x] Integration test (env-gated): one real Tavily call end-to-end
 
 ### Phase 3 — Dedup + ranking
-- [ ] `application/deduplicator.py`: URL normalization (strip query params/fragments) pass
-- [ ] `application/deduplicator.py`: near-duplicate content pass (title+snippet similarity)
-- [ ] `application/ranker.py`: keyword-overlap scoring against original query
-- [ ] `application/ranker.py`: combine with recency + provider score into final rank
-- [ ] Unit tests with fixture result sets containing intentional duplicates
+- [x] `application/deduplicator.py`: URL normalization (strip query params/fragments) pass
+- [x] `application/deduplicator.py`: near-duplicate content pass (title+snippet similarity)
+- [x] `application/ranker.py`: keyword-overlap scoring against original query
+- [x] `application/ranker.py`: combine with recency + provider score into final rank
+- [x] Unit tests with fixture result sets containing intentional duplicates
 
 ### Phase 4 — Context building
 - [ ] `utils/token_counter.py`: token counting helper (tiktoken or model-appropriate tokenizer)
