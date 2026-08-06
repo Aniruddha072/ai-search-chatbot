@@ -79,12 +79,12 @@ Each box is independently completable and independently testable.
 - [x] `domain/interfaces.py`: `Cache` ABC (`get`, `set` with TTL)
 
 ### Phase 2 — Search integration
-- [ ] `infrastructure/search/tavily_provider.py`: implement `SearchProvider` using Tavily's async client
-- [ ] Map Tavily's raw response into `SearchResult` entities
-- [ ] `application/search_orchestrator.py`: `asyncio.gather` fan-out with `return_exceptions=True`
-- [ ] Add per-query timeout (`asyncio.wait_for`) inside the orchestrator
-- [ ] Unit test: orchestrator with a mocked `SearchProvider` that fails on one of three queries — assert partial results returned
-- [ ] Integration test (env-gated): one real Tavily call end-to-end
+- [x] `infrastructure/search/tavily_provider.py`: implement `SearchProvider` using Tavily's async client
+- [x] Map Tavily's raw response into `SearchResult` entities
+- [x] `application/search_orchestrator.py`: `asyncio.gather` fan-out with `return_exceptions=True`
+- [x] Add per-query timeout (`asyncio.wait_for`) inside the orchestrator
+- [x] Unit test: orchestrator with a mocked `SearchProvider` that fails on one of three queries — assert partial results returned
+- [x] Integration test (env-gated): one real Tavily call end-to-end
 
 ### Phase 3 — Dedup + ranking
 - [ ] `application/deduplicator.py`: URL normalization (strip query params/fragments) pass

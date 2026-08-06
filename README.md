@@ -19,8 +19,8 @@ for reference; it is not part of the active codebase.
 Clean architecture, inner layers depending on nothing outward:
 
 - **`src/domain/`** — entities (`Query`, `SearchResult`, `Source`, `Answer`, `EvaluationResult`) and interfaces (`SearchProvider`, `LLMProvider`, `Ranker`, `Evaluator`, `Cache`). No I/O, no external libraries.
-- **`src/application/`** — orchestration logic that depends only on the interfaces above. Not yet implemented.
-- **`src/infrastructure/`** — concrete adapters (Tavily, Groq, RAGAS, cache) implementing those interfaces. Not yet implemented.
+- **`src/application/`** — orchestration logic that depends only on the interfaces above. `SearchOrchestrator` implemented; the rest is not yet.
+- **`src/infrastructure/`** — concrete adapters (Tavily, Groq, RAGAS, cache) implementing those interfaces. `TavilyProvider` implemented; the rest is not yet.
 - **`src/presentation/`** — CLI entry point. Not yet implemented.
 
 Full pipeline diagram and component responsibilities: [`docs/architecture.md`](docs/architecture.md).
@@ -29,7 +29,7 @@ Full pipeline diagram and component responsibilities: [`docs/architecture.md`](d
 
 - [x] Phase 0 — Project scaffolding
 - [x] Phase 1 — Domain layer
-- [ ] Phase 2 — Search integration
+- [x] Phase 2 — Search integration
 - [ ] Phase 3 — Dedup + ranking
 - [ ] Phase 4 — Context building
 - [ ] Phase 5 — Query planning
@@ -50,9 +50,11 @@ src/
 ├── domain/
 │   ├── entities.py       # Query, SearchResult, Source, Answer, EvaluationResult
 │   └── interfaces.py     # SearchProvider, LLMProvider, Ranker, Evaluator, Cache
-├── application/           (empty)
+├── application/
+│   └── search_orchestrator.py  # concurrent fan-out over a SearchProvider, per-query timeout
 ├── infrastructure/
-│   ├── search/            (empty)
+│   ├── search/
+│   │   └── tavily_provider.py  # implements SearchProvider via Tavily's async client
 │   ├── llm/                (empty)
 │   ├── evaluation/        (empty)
 │   ├── cache/              (empty)
@@ -69,8 +71,11 @@ tests/
 │   ├── test_settings.py
 │   ├── test_logging.py
 │   ├── test_entities.py
-│   └── test_interfaces.py
-└── integration/           (empty)
+│   ├── test_interfaces.py
+│   ├── test_tavily_provider.py
+│   └── test_search_orchestrator.py
+└── integration/
+    └── test_tavily_search.py   # real Tavily call, gated behind RUN_INTEGRATION_TESTS=1
 ```
 
 ## Setup
