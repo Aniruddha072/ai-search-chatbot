@@ -1,0 +1,23 @@
+[project]
+name = "ai-search-chatbot"
+version = "0.1.0"
+description = "Interactive AI research chatbot: dynamic query planning, Tavily search, Groq-grounded answers, RAGAS evaluation."
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
