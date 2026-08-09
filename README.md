@@ -20,8 +20,9 @@ for reference; it is not part of the active codebase.
 Clean architecture, inner layers depending on nothing outward:
 
 - **`src/domain/`** — entities (`Query`, `SearchResult`, `Source`, `Answer`, `EvaluationResult`) and interfaces (`SearchProvider`, `LLMProvider`, `Ranker`, `Evaluator`, `ContentExtractor`, `Cache`). No I/O, no external libraries.
-- **`src/application/`** — orchestration logic that depends only on the interfaces above. `SearchOrchestrator`, `Deduplicator`, `HeuristicRanker`, `ContextBuilder`, `QueryPlanner`, `AnswerGenerator` implemented; the rest is not yet.
+- **`src/application/`** — orchestration logic that depends only on the interfaces above. `SearchOrchestrator`, `Deduplicator`, `HeuristicRanker`, `ContextBuilder`, `QueryPlanner`, `AnswerGenerator`, `ChatPipeline` implemented; the rest is not yet.
 - **`src/infrastructure/`** — concrete adapters (Tavily, Groq, RAGAS, cache) implementing those interfaces. `TavilyProvider`, `TrafilaturaContentExtractor`, `GroqClient` implemented; the rest is not yet.
+- **`src/bootstrap.py`** — composition root wiring real Settings-backed instances into one `ChatPipeline`. Implemented.
 - **`src/presentation/`** — CLI entry point. Not yet implemented.
 
 Full pipeline diagram and component responsibilities: [`docs/architecture.md`](docs/architecture.md).
@@ -35,7 +36,7 @@ Full pipeline diagram and component responsibilities: [`docs/architecture.md`](d
 - [x] Phase 4 — Context building
 - [x] Phase 5 — Query planning
 - [x] Phase 6 — Answer generation
-- [ ] Phase 7 — Pipeline wiring
+- [x] Phase 7 — Pipeline wiring
 - [ ] Phase 8 — RAGAS evaluation
 - [ ] Phase 9 — Caching
 - [ ] Phase 10 — Resilience hardening
@@ -48,6 +49,7 @@ Full pipeline diagram and component responsibilities: [`docs/architecture.md`](d
 
 ```
 src/
+├── bootstrap.py           # composition root: Settings -> real instances -> one ChatPipeline
 ├── domain/
 │   ├── entities.py       # Query, SearchResult, Source, Answer, EvaluationResult
 │   └── interfaces.py     # SearchProvider, LLMProvider, Ranker, Evaluator, ContentExtractor, Cache
@@ -57,7 +59,8 @@ src/
 │   ├── ranker.py               # HeuristicRanker: weighted provider/keyword/recency scoring
 │   ├── context_builder.py      # top-K selection, thin-snippet full-fetch, token-budget enforcement
 │   ├── query_planner.py        # Groq structured-output call -> Query, with single-query fallback
-│   └── answer_generator.py     # Groq generate() -> cited Answer; failures propagate, no fallback
+│   ├── answer_generator.py     # Groq generate() -> cited Answer; failures propagate, no fallback
+│   └── pipeline.py             # ChatPipeline: chains query planning through answer generation
 ├── infrastructure/
 │   ├── search/
 │   │   └── tavily_provider.py  # implements SearchProvider via Tavily's async client
@@ -94,11 +97,14 @@ tests/
 │   ├── test_context_builder.py
 │   ├── test_groq_client.py
 │   ├── test_query_planner.py
-│   └── test_answer_generator.py
+│   ├── test_answer_generator.py
+│   ├── test_pipeline.py          # full chain, real everywhere except SearchProvider/LLMProvider
+│   └── test_bootstrap.py
 └── integration/
     ├── test_tavily_search.py     # real Tavily call, gated behind RUN_INTEGRATION_TESTS=1
     ├── test_query_planner.py     # real Groq call, gated behind RUN_INTEGRATION_TESTS=1
-    └── test_answer_generator.py  # real Groq call, gated behind RUN_INTEGRATION_TESTS=1
+    ├── test_answer_generator.py  # real Groq call, gated behind RUN_INTEGRATION_TESTS=1
+    └── test_pipeline.py          # full real end-to-end run, gated behind RUN_INTEGRATION_TESTS=1
 ```
 
 ## Setup

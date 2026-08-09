@@ -398,6 +398,50 @@ Reason:
   validation point (see Decision 5.4) - the LLM's output is treated as
   untrusted input, not assumed well-formed.
 
+### Decision 7.1
+
+Date: 2026-08-06
+
+Implemented:
+`ChatPipeline` depends on the `Ranker` interface but on the concrete
+`QueryPlanner`/`SearchOrchestrator`/`Deduplicator`/`ContextBuilder`/
+`AnswerGenerator` classes directly, not interfaces for all six.
+
+Reason:
+- Matches the architecture doc's component table: `Ranker` is the only
+  one of these six with a named future alternative (embedding rerank).
+  Depending on concretions where no second implementation is planned
+  isn't a DIP violation, just accurate.
+
+### Decision 7.2
+
+Date: 2026-08-06
+
+Implemented:
+`build_chat_pipeline()` is a plain function, not wrapped in
+`@lru_cache` the way `get_settings()` is.
+
+Reason:
+- `get_settings()` is called from many places and genuinely needs
+  memoization. `build_chat_pipeline()` has exactly one natural call
+  site per process (a future CLI's startup) - the caller holds the
+  single `ChatPipeline` instance, so there's nothing to cache.
+
+### Decision 7.3
+
+Date: 2026-08-06
+
+Implemented:
+`ChatPipeline.handle()` has no try/except and no degradation ladder -
+`AnswerGenerator`'s propagated failures (Decision 6.1) bubble straight
+out uncaught.
+
+Reason:
+- "Catch and translate exceptions at ChatPipeline boundary" and "the
+  degradation ladder" are explicit Phase 10 checklist items, not
+  Phase 7's. Building them now would be speculative ahead of the
+  phase that actually owns this concern.
+
 ---
 
 ## 1. Key design decisions
@@ -480,7 +524,7 @@ agnostic by construction, so `api.py` is additive later, not a rewrite.
 - **Parallel search fan-out** — all sub-queries hit Tavily concurrently via `asyncio.gather`, not sequentially.
 - **Model tiering** — small/fast model for planning, larger model only for the user-facing answer.
 - **Streaming the final answer** — Groq supports token streaming; the CLI (and later API via SSE) should stream the answer as it's generated rather than waiting for the full completion, so perceived latency drops even though total tokens/time is unchanged.
-- **Reused async HTTP clients** — one `httpx.AsyncClient` per external service (Tavily, Groq) constructed once at bootstrap and reused, not recreated per request (avoids TCP/TLS handshake cost per call).
+- **Reused async HTTP clients** ✅ — one `GroqClient` (wrapping one `AsyncGroq`) constructed once in `bootstrap.py` and shared between `QueryPlanner` and `AnswerGenerator`, not recreated per request. *(Phase 7 — required no new code, just correct composition-root wiring; see Decision 7.1's phase log.)*
 - **Short-circuit for simple queries** — if the planner returns exactly 1 query with high confidence, skip the heavier multi-source dedup/rank path (still runs, but on a trivially small set) rather than adding artificial work.
 - **Selective full-page fetch** — only top-K sources with thin snippets get fetched; this is the single biggest avoidable latency cost in naive RAG pipelines, so it's opt-in per source, not global.
 - **Concurrent RAGAS metrics** — faithfulness / answer relevancy / context precision computed in parallel, not sequentially.

@@ -115,9 +115,9 @@ Each box is independently completable and independently testable.
 - [x] Unit tests: mocked Groq output with citations mapped back to correct `Source` objects
 
 ### Phase 7 — Pipeline wiring
-- [ ] `application/pipeline.py`: `ChatPipeline.handle(user_query) -> Answer` composing phases 2–6
-- [ ] `bootstrap.py`: composition root wiring concrete providers from settings into `ChatPipeline`
-- [ ] Manual end-to-end smoke test with a real question
+- [x] `application/pipeline.py`: `ChatPipeline.handle(user_query) -> Answer` composing phases 2–6
+- [x] `bootstrap.py`: composition root wiring concrete providers from settings into `ChatPipeline`
+- [x] Manual end-to-end smoke test with a real question (made automated/repeatable as a gated integration test rather than a one-off script)
 
 ### Phase 8 — RAGAS evaluation
 - [ ] `infrastructure/evaluation/ragas_evaluator.py`: implement `Evaluator`, wrap RAGAS with Groq as judge LLM
