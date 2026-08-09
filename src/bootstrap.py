@@ -10,12 +10,14 @@ ChatPipeline instance, so there's nothing to memoize here.
 from src.application.answer_generator import AnswerGenerator
 from src.application.context_builder import ContextBuilder
 from src.application.deduplicator import Deduplicator
+from src.application.evaluation_service import EvaluationService
 from src.application.pipeline import ChatPipeline
 from src.application.query_planner import QueryPlanner
 from src.application.ranker import HeuristicRanker
 from src.application.search_orchestrator import SearchOrchestrator
 from src.config.settings import get_settings
 from src.infrastructure.content.content_extractor import TrafilaturaContentExtractor
+from src.infrastructure.evaluation.ragas_evaluator import RagasEvaluator
 from src.infrastructure.llm.groq_client import GroqClient
 from src.infrastructure.search.tavily_provider import TavilyProvider
 
@@ -43,6 +45,17 @@ def build_chat_pipeline() -> ChatPipeline:
         capable_model=settings.groq_capable_model,
     )
 
+    # RagasEvaluator gets its own instructor-wrapped Groq client rather than
+    # reusing `groq_client` above - it goes through instructor's own client
+    # construction (instructor.from_provider), not GroqClient/AsyncGroq
+    # directly, so there's no shared instance to reuse here.
+    evaluation_service = EvaluationService(
+        evaluator=RagasEvaluator(
+            api_key=settings.groq_api_key, model=settings.groq_capable_model
+        ),
+        timeout_seconds=settings.evaluation_timeout_seconds,
+    )
+
     return ChatPipeline(
         query_planner=QueryPlanner(groq_client, timeout_seconds=settings.llm_timeout_seconds),
         search_orchestrator=search_orchestrator,
@@ -50,5 +63,6 @@ def build_chat_pipeline() -> ChatPipeline:
         ranker=HeuristicRanker(),
         context_builder=context_builder,
         answer_generator=AnswerGenerator(groq_client, timeout_seconds=settings.llm_timeout_seconds),
+        evaluation_service=evaluation_service,
         max_results_per_query=settings.max_search_results,
     )

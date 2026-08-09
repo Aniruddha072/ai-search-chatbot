@@ -10,6 +10,27 @@ dependencies = [
     "tavily-python>=0.5",
     "trafilatura>=1.8",
     "groq>=1.0",
+    "instructor>=1.15",
+
+    # ragas's own real (non-testset-generation) runtime dependencies,
+    # listed explicitly. ragas itself is deliberately NOT listed here -
+    # see the Setup section in README.md for why and the exact install
+    # command (Decision 8.1).
+    "numpy>=2.0",
+    "datasets>=5.0",
+    "tiktoken>=0.13",
+    "nest-asyncio>=1.6",
+    "appdirs>=1.4",
+    "diskcache>=5.6",
+    "typer>=0.27",
+    "rich>=14.0",
+    "openai>=2.0",
+    "tqdm>=4.60",
+    "pillow>=12.0",
+    "langchain>=1.3",
+    "langchain-core>=1.5",
+    "langchain-community>=0.3.27,<0.4",
+    "langchain-openai>=1.4",
 ]
 
 [project.optional-dependencies]

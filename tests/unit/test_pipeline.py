@@ -1,20 +1,22 @@
 """ChatPipeline tested with the real SearchOrchestrator, Deduplicator,
-HeuristicRanker, ContextBuilder, QueryPlanner, and AnswerGenerator -
-faked only at the true I/O boundary (SearchProvider, LLMProvider,
-ContentExtractor). Exercises the entire real chain offline.
+HeuristicRanker, ContextBuilder, QueryPlanner, AnswerGenerator, and
+EvaluationService - faked only at the true I/O boundary (SearchProvider,
+LLMProvider, ContentExtractor, Evaluator). Exercises the entire real
+chain offline.
 """
 import pytest
 
 from src.application.answer_generator import AnswerGenerator
 from src.application.context_builder import ContextBuilder
 from src.application.deduplicator import Deduplicator
+from src.application.evaluation_service import EvaluationService
 from src.application.pipeline import ChatPipeline
 from src.application.query_planner import QueryPlanner
 from src.application.ranker import HeuristicRanker
 from src.application.search_orchestrator import SearchOrchestrator
 from src.config.prompts.query_planning import QueryPlanResponse
-from src.domain.entities import SearchResult
-from src.domain.interfaces import ContentExtractor, LLMProvider, SearchProvider
+from src.domain.entities import EvaluationResult, SearchResult
+from src.domain.interfaces import ContentExtractor, Evaluator, LLMProvider, SearchProvider
 
 
 class FakeSearchProvider(SearchProvider):
@@ -50,7 +52,24 @@ class FakeLLMProvider(LLMProvider):
         return self._generate_response
 
 
-def build_pipeline(search_provider: SearchProvider, llm_provider: LLMProvider) -> ChatPipeline:
+class FakeEvaluator(Evaluator):
+    def __init__(
+        self, result: EvaluationResult | None = None, raise_exc: Exception | None = None
+    ):
+        self._result = result or EvaluationResult(faithfulness=0.9, context_precision=0.9)
+        self._raise_exc = raise_exc
+
+    async def evaluate(self, question: str, answer: str, contexts: list[str]) -> EvaluationResult:
+        if self._raise_exc:
+            raise self._raise_exc
+        return self._result
+
+
+def build_pipeline(
+    search_provider: SearchProvider,
+    llm_provider: LLMProvider,
+    evaluator: Evaluator | None = None,
+) -> ChatPipeline:
     return ChatPipeline(
         query_planner=QueryPlanner(llm_provider, timeout_seconds=5.0),
         search_orchestrator=SearchOrchestrator(search_provider, timeout_seconds=5.0),
@@ -63,6 +82,7 @@ def build_pipeline(search_provider: SearchProvider, llm_provider: LLMProvider) -
             content_fetch_timeout_seconds=5.0,
         ),
         answer_generator=AnswerGenerator(llm_provider, timeout_seconds=5.0),
+        evaluation_service=EvaluationService(evaluator or FakeEvaluator(), timeout_seconds=5.0),
         max_results_per_query=5,
     )
 
@@ -96,6 +116,9 @@ async def test_full_pipeline_produces_a_grounded_cited_answer():
     assert answer.text == "PCCOE is a great choice [1]."
     assert len(answer.sources) == 1
     assert answer.sources[0].title == "PCCOE Admissions"
+    assert answer.evaluation.faithfulness == 0.9
+    assert answer.evaluation.context_precision == 0.9
+    assert answer.evaluation.error is None
 
 
 @pytest.mark.asyncio
@@ -145,3 +168,83 @@ async def test_query_planner_fallback_still_flows_through_the_whole_pipeline():
     # Query genuinely flows through search/dedup/rank/context/generation.
     assert len(answer.sources) == 1
     assert answer.sources[0].title == "PCCOE Admissions"
+
+
+@pytest.mark.asyncio
+async def test_evaluation_failure_does_not_crash_the_pipeline():
+    sub_query = "best computer engineering colleges pune"
+    search_provider = FakeSearchProvider(
+        {
+            sub_query: [
+                SearchResult(
+                    url="https://example.com/pccoe",
+                    title="PCCOE Admissions",
+                    snippet="PCCOE, Pune offers a well-regarded Computer Engineering program.",
+                    source_query=sub_query,
+                    provider_score=0.9,
+                )
+            ]
+        }
+    )
+    llm_provider = FakeLLMProvider(
+        structured_response=QueryPlanResponse(
+            intent="find CE colleges", complexity="simple", queries=[sub_query]
+        ),
+        generate_response="PCCOE is a great choice [1].",
+    )
+    evaluator = FakeEvaluator(raise_exc=RuntimeError("ragas exploded"))
+    pipeline = build_pipeline(search_provider, llm_provider, evaluator=evaluator)
+
+    answer = await pipeline.handle("best computer engineering colleges in Pune")
+
+    # The answer itself is unaffected - evaluation failing is non-blocking.
+    assert answer.text == "PCCOE is a great choice [1]."
+    assert answer.evaluation.error is not None
+    assert answer.evaluation.faithfulness is None
+
+
+@pytest.mark.asyncio
+async def test_evaluation_uses_full_context_not_just_cited_sources():
+    sub_query = "best computer engineering colleges pune"
+    search_provider = FakeSearchProvider(
+        {
+            sub_query: [
+                SearchResult(
+                    url="https://example.com/pccoe",
+                    title="PCCOE Admissions",
+                    snippet="PCCOE, Pune offers a well-regarded Computer Engineering program.",
+                    source_query=sub_query,
+                    provider_score=0.9,
+                ),
+                SearchResult(
+                    url="https://example.com/coep",
+                    title="COEP",
+                    snippet="COEP is a top-ranked government engineering college in Pune.",
+                    source_query=sub_query,
+                    provider_score=0.8,
+                ),
+            ]
+        }
+    )
+    # Generated answer cites only source [1] (PCCOE), never mentions COEP.
+    llm_provider = FakeLLMProvider(
+        structured_response=QueryPlanResponse(
+            intent="find CE colleges", complexity="simple", queries=[sub_query]
+        ),
+        generate_response="PCCOE is a great choice [1].",
+    )
+
+    received_contexts: list[str] = []
+
+    class RecordingEvaluator(Evaluator):
+        async def evaluate(self, question, answer, contexts):
+            received_contexts.extend(contexts)
+            return EvaluationResult(faithfulness=1.0, context_precision=1.0)
+
+    pipeline = build_pipeline(search_provider, llm_provider, evaluator=RecordingEvaluator())
+
+    answer = await pipeline.handle("best computer engineering colleges in Pune")
+
+    # Only one source was cited, but both were passed to evaluation.
+    assert len(answer.sources) == 1
+    assert len(received_contexts) == 2

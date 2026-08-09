@@ -58,15 +58,6 @@ class Source:
 
 
 @dataclass(frozen=True)
-class Answer:
-    """The final grounded answer plus the sources it was built from."""
-
-    text: str
-    sources: tuple[Source, ...]
-    query: Query
-
-
-@dataclass(frozen=True)
 class EvaluationResult:
     """Reference-free RAGAS scores for one answer.
 
@@ -74,9 +65,29 @@ class EvaluationResult:
     because evaluation must never block returning an answer to the user
     (see docs/decisions.md, 1.6) - a failed evaluation is a valid, expected
     outcome, not an exceptional one.
+
+    `answer_relevancy` is always None as of Phase 8: it requires an
+    embeddings model, and Groq doesn't serve one (verified: a real
+    embeddings call 404s). Kept as a field rather than removed, since
+    dropping it was a scope decision, not an oversight (see
+    docs/decisions.md, 8.x).
     """
 
     faithfulness: float | None = None
     answer_relevancy: float | None = None
     context_precision: float | None = None
     error: str | None = None
+
+
+@dataclass(frozen=True)
+class Answer:
+    """The final grounded answer plus the sources it was built from.
+
+    `evaluation` defaults to None so any code built before Phase 8 that
+    constructs an Answer without it keeps working unchanged.
+    """
+
+    text: str
+    sources: tuple[Source, ...]
+    query: Query
+    evaluation: EvaluationResult | None = None

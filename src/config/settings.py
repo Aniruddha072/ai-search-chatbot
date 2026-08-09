@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     groq_capable_model: str = Field(default="llama-3.3-70b-versatile", min_length=1)
     llm_timeout_seconds: float = Field(default=10.0, gt=0)
 
+    evaluation_timeout_seconds: float = Field(default=15.0, gt=0)
+
 
 @lru_cache
 def get_settings() -> Settings:
