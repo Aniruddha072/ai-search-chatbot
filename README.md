@@ -20,7 +20,7 @@ for reference; it is not part of the active codebase.
 Clean architecture, inner layers depending on nothing outward:
 
 - **`src/domain/`** — entities (`Query`, `SearchResult`, `Source`, `Answer`, `EvaluationResult`) and interfaces (`SearchProvider`, `LLMProvider`, `Ranker`, `Evaluator`, `ContentExtractor`, `Cache`). No I/O, no external libraries.
-- **`src/application/`** — orchestration logic that depends only on the interfaces above. `SearchOrchestrator`, `Deduplicator`, `HeuristicRanker`, `ContextBuilder`, `QueryPlanner` implemented; the rest is not yet.
+- **`src/application/`** — orchestration logic that depends only on the interfaces above. `SearchOrchestrator`, `Deduplicator`, `HeuristicRanker`, `ContextBuilder`, `QueryPlanner`, `AnswerGenerator` implemented; the rest is not yet.
 - **`src/infrastructure/`** — concrete adapters (Tavily, Groq, RAGAS, cache) implementing those interfaces. `TavilyProvider`, `TrafilaturaContentExtractor`, `GroqClient` implemented; the rest is not yet.
 - **`src/presentation/`** — CLI entry point. Not yet implemented.
 
@@ -34,7 +34,7 @@ Full pipeline diagram and component responsibilities: [`docs/architecture.md`](d
 - [x] Phase 3 — Dedup + ranking
 - [x] Phase 4 — Context building
 - [x] Phase 5 — Query planning
-- [ ] Phase 6 — Answer generation
+- [x] Phase 6 — Answer generation
 - [ ] Phase 7 — Pipeline wiring
 - [ ] Phase 8 — RAGAS evaluation
 - [ ] Phase 9 — Caching
@@ -56,7 +56,8 @@ src/
 │   ├── deduplicator.py         # URL normalization + near-duplicate content passes
 │   ├── ranker.py               # HeuristicRanker: weighted provider/keyword/recency scoring
 │   ├── context_builder.py      # top-K selection, thin-snippet full-fetch, token-budget enforcement
-│   └── query_planner.py        # Groq structured-output call -> Query, with single-query fallback
+│   ├── query_planner.py        # Groq structured-output call -> Query, with single-query fallback
+│   └── answer_generator.py     # Groq generate() -> cited Answer; failures propagate, no fallback
 ├── infrastructure/
 │   ├── search/
 │   │   └── tavily_provider.py  # implements SearchProvider via Tavily's async client
@@ -69,8 +70,10 @@ src/
 ├── config/
 │   ├── settings.py       # pydantic-settings, validated env config
 │   └── prompts/
-│       ├── query_planner.txt    # system prompt text, plain text, not Python
-│       └── query_planning.py    # loads the .txt + QueryPlanResponse schema
+│       ├── query_planner.txt       # system prompt text, plain text, not Python
+│       ├── query_planning.py       # loads the .txt + QueryPlanResponse schema
+│       ├── answer_generation.txt   # cite-or-refuse system prompt, plain text
+│       └── answer_generation.py    # loads the .txt (no schema - free text, not structured)
 ├── presentation/          (empty)
 └── utils/
     ├── logging.py        # structured logging with per-turn correlation IDs
@@ -90,10 +93,12 @@ tests/
 │   ├── test_content_extractor.py
 │   ├── test_context_builder.py
 │   ├── test_groq_client.py
-│   └── test_query_planner.py
+│   ├── test_query_planner.py
+│   └── test_answer_generator.py
 └── integration/
-    ├── test_tavily_search.py   # real Tavily call, gated behind RUN_INTEGRATION_TESTS=1
-    └── test_query_planner.py   # real Groq call, gated behind RUN_INTEGRATION_TESTS=1
+    ├── test_tavily_search.py     # real Tavily call, gated behind RUN_INTEGRATION_TESTS=1
+    ├── test_query_planner.py     # real Groq call, gated behind RUN_INTEGRATION_TESTS=1
+    └── test_answer_generator.py  # real Groq call, gated behind RUN_INTEGRATION_TESTS=1
 ```
 
 ## Setup

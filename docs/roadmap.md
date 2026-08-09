@@ -109,10 +109,10 @@ Each box is independently completable and independently testable.
 - [x] Unit tests: mocked Groq responses covering valid, malformed, and over-5-queries cases
 
 ### Phase 6 — Answer generation
-- [ ] `config/prompts/answer_generation.py`: grounded/cite-or-refuse system prompt
-- [ ] `infrastructure/llm/groq_client.py`: generation method using the capable model, streaming-capable
-- [ ] `application/answer_generator.py`: build indexed source list, call Groq, parse citation markers into `Answer`
-- [ ] Unit tests: mocked Groq output with citations mapped back to correct `Source` objects
+- [x] `config/prompts/answer_generation.py`: grounded/cite-or-refuse system prompt
+- [x] `infrastructure/llm/groq_client.py`: generation method using the capable model (non-streaming; streaming deferred to Phase 11 - no real consumer exists yet)
+- [x] `application/answer_generator.py`: build indexed source list, call Groq, parse citation markers into `Answer`
+- [x] Unit tests: mocked Groq output with citations mapped back to correct `Source` objects
 
 ### Phase 7 — Pipeline wiring
 - [ ] `application/pipeline.py`: `ChatPipeline.handle(user_query) -> Answer` composing phases 2–6

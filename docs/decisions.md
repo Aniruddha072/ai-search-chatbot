@@ -354,6 +354,50 @@ Reason:
   requested, and a pattern worth continuing for future prompts (Phase 6's
   answer-generation prompt).
 
+### Decision 6.1
+
+Date: 2026-08-06
+
+Implemented:
+`AnswerGenerator` does not catch LLM failures with a fallback the way
+`QueryPlanner` does - a timeout or API error propagates to the caller.
+
+Reason:
+- There's no safe fallback answer possible without a successful LLM
+  call, unlike planning's "just search the raw question." Deciding the
+  user-facing behavior on failure is explicitly a Phase 7 (`ChatPipeline`)
+  / Phase 10 (resilience) concern per the existing degradation ladder in
+  this doc's §6, not this component's job.
+
+### Decision 6.2
+
+Date: 2026-08-06
+
+Implemented:
+Streaming is deferred to Phase 11, despite the roadmap checklist's
+literal "streaming-capable" wording for this phase.
+
+Reason:
+- `AnswerGenerator` needs the complete response regardless - citation
+  parsing can't operate on a partial stream.
+- Building streaming now would mean designing it with no real consumer
+  to validate against until the CLI (Phase 11) exists to actually print
+  tokens as they arrive.
+
+### Decision 6.3
+
+Date: 2026-08-06
+
+Implemented:
+Citation parsing is defensive: duplicate citations of the same source
+are deduplicated, and a hallucinated out-of-range index (e.g. `[99]`
+when only 2 sources exist) is silently dropped rather than raising.
+
+Reason:
+- Matches the project's general pattern of not trusting a single
+  validation point (see Decision 5.4) - the LLM's output is treated as
+  untrusted input, not assumed well-formed.
+
 ---
 
 ## 1. Key design decisions
@@ -390,7 +434,7 @@ often enough. Because `Ranker` is a port, upgrading to embeddings later is a
 one-file change — call this out explicitly in the internship writeup as a
 deliberate MVP-vs-ideal tradeoff, not an oversight.
 
-**1.5 Model tiering on Groq.**
+**1.5 Model tiering on Groq.** ✅ *Fully implemented as of Phase 6 - fast model for planning (Phase 5), capable model for generation (Phase 6).*
 Query planning uses a small/fast Groq model (e.g. `llama-3.1-8b-instant`);
 final answer generation uses a larger model (e.g. `llama-3.3-70b-versatile`).
 Planning is a short structured-output task where the small model is reliable;
