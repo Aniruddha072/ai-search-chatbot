@@ -21,7 +21,7 @@ Clean architecture, inner layers depending on nothing outward:
 
 - **`src/domain/`** — entities (`Query`, `SearchResult`, `Source`, `Answer`, `EvaluationResult`) and interfaces (`SearchProvider`, `LLMProvider`, `Ranker`, `Evaluator`, `ContentExtractor`, `Cache`). No I/O, no external libraries.
 - **`src/application/`** — orchestration logic that depends only on the interfaces above. `SearchOrchestrator`, `Deduplicator`, `HeuristicRanker`, `ContextBuilder`, `QueryPlanner`, `AnswerGenerator`, `ChatPipeline`, `EvaluationService` implemented; the rest is not yet.
-- **`src/infrastructure/`** — concrete adapters (Tavily, Groq, RAGAS, cache) implementing those interfaces. `TavilyProvider`, `TrafilaturaContentExtractor`, `GroqClient`, `RagasEvaluator` implemented; the rest is not yet.
+- **`src/infrastructure/`** — concrete adapters (Tavily, Groq, RAGAS, cache) implementing those interfaces. `TavilyProvider`, `TrafilaturaContentExtractor`, `GroqClient`, `RagasEvaluator`, `InMemoryCache` implemented; the rest is not yet.
 - **`src/bootstrap.py`** — composition root wiring real Settings-backed instances into one `ChatPipeline`. Implemented.
 - **`src/presentation/`** — CLI entry point. Not yet implemented.
 
@@ -38,7 +38,7 @@ Full pipeline diagram and component responsibilities: [`docs/architecture.md`](d
 - [x] Phase 6 — Answer generation
 - [x] Phase 7 — Pipeline wiring
 - [x] Phase 8 — RAGAS evaluation
-- [ ] Phase 9 — Caching
+- [x] Phase 9 — Caching
 - [ ] Phase 10 — Resilience hardening
 - [ ] Phase 11 — CLI presentation
 - [ ] Phase 12 — Testing
@@ -69,7 +69,8 @@ src/
 │   │   └── groq_client.py      # implements LLMProvider (generate + generate_structured)
 │   ├── evaluation/
 │   │   └── ragas_evaluator.py  # implements Evaluator via RAGAS + instructor + Groq
-│   ├── cache/              (empty)
+│   ├── cache/
+│   │   └── memory_cache.py     # InMemoryCache: dict + lazy TTL expiry, implements Cache
 │   └── content/
 │       └── content_extractor.py  # TrafilaturaContentExtractor implements ContentExtractor
 ├── config/
@@ -103,7 +104,8 @@ tests/
 │   ├── test_pipeline.py          # full chain, real everywhere except SearchProvider/LLMProvider/Evaluator
 │   ├── test_bootstrap.py
 │   ├── test_ragas_evaluator.py
-│   └── test_evaluation_service.py
+│   ├── test_evaluation_service.py
+│   └── test_memory_cache.py
 └── integration/
     ├── test_tavily_search.py     # real Tavily call, gated behind RUN_INTEGRATION_TESTS=1
     ├── test_query_planner.py     # real Groq call, gated behind RUN_INTEGRATION_TESTS=1

@@ -527,6 +527,86 @@ Reason:
   Noted explicitly as a real limitation rather than silently diverging
   from the established pattern without explanation.
 
+### Decision 9.1
+
+Date: 2026-08-09
+
+Implemented:
+`bootstrap.py` constructs two separate `InMemoryCache()` instances -
+one for query plans, one for search results - rather than one shared
+cache.
+
+Reason:
+- A raw user question could in principle collide with a generated
+  sub-query string. A shared cache keyed by that same string would
+  return the wrong *type* of cached value (`Query` where
+  `list[SearchResult]` was expected, or vice versa). Two cheap,
+  separate instances avoid this by construction, with no key-prefixing
+  convention needed.
+
+### Decision 9.2
+
+Date: 2026-08-09
+
+Implemented:
+`cache: Cache` is a required constructor parameter on both
+`QueryPlanner` and `SearchOrchestrator`, not `Cache | None = None`.
+
+Reason:
+- Every other collaborator in this codebase (`SearchProvider`,
+  `LLMProvider`, `ContentExtractor`, `Evaluator`) has been a required,
+  non-optional constructor param. Making this one optional-with-a-
+  None-escape-hatch would be the one inconsistent exception, even
+  though it meant updating more existing call sites
+  (`bootstrap.py` and four test files) than a typical phase touches.
+
+### Decision 9.3
+
+Date: 2026-08-09
+
+Implemented:
+`QueryPlanner` only writes a *successful* plan to cache - the fallback
+`Query` built on LLM failure is never cached.
+
+Reason:
+- Caching the fallback would let a single transient LLM failure poison
+  every identical question asked again within the TTL window with a
+  degraded single-query plan, even after Groq recovers. Verified with
+  a dedicated test that a failing LLM is retried on every call, not
+  cached after the first failure.
+
+### Decision 9.4
+
+Date: 2026-08-09
+
+Implemented:
+`SearchOrchestrator`'s cache key is `(normalized sub-query,
+max_results)`, not just the sub-query text.
+
+Reason:
+- Omitting `max_results` would let a cache entry written for one
+  result count silently satisfy a request for a different one -
+  returning too few (or padding-worthy-of-more) results without any
+  error. Costs nothing to include, closes a real correctness gap.
+
+### Decision 9.5
+
+Date: 2026-08-09
+
+Implemented:
+`InMemoryCache` has no lock, no eviction policy, and no size cap.
+
+Reason:
+- Matches decisions.md §7's own framing: "fine for a single-process
+  CLI demo." No `await` occurs inside `get`/`set`, so concurrent
+  `asyncio.gather` callers can't interleave mid-operation even without
+  a lock - the one accepted gap is a same-key "cache stampede" (two
+  concurrent misses both doing the underlying work), a missed
+  optimization, not a correctness bug. Revisiting unbounded growth is
+  deferred until Phase 11/14 make the process long-running, at which
+  point the `Cache` port already makes swapping in Redis a config
+  change, not a rewrite.
+
 ---
 
 ## 1. Key design decisions
@@ -646,17 +726,17 @@ Per-call timeouts wrap all four points now (search, content-fetch, LLM calls, an
 - **Typed exceptions per layer** (`SearchProviderError`, `LLMGenerationError`, `EvaluationError`) caught at the `ChatPipeline` boundary, logged with a per-turn correlation ID, translated into a single well-shaped error response for the presentation layer.
 - **Input validation at the boundary** — empty/absurdly long user input rejected before it reaches the planner, not after burning an LLM call.
 
-## 7. Caching opportunities
+## 7. Caching opportunities ✅ *Query plan and search result caches implemented in Phase 9, exactly as designed below (search result cache key extended to include `max_results` - Decision 9.4). Final answer cache remains future - it was always framed as optional here.*
 
 | Cache | Key | TTL | Value |
 |---|---|---|---|
-| Query plan cache | Normalized user query (lowercased, whitespace-collapsed) | Short (e.g. 10 min) | Same question asked twice in a session skips a planning LLM call entirely |
-| Search result cache | Individual sub-query string | Medium (e.g. 1 hr) | Different users/turns generating an overlapping sub-query (very common — "best X in Pune" style queries repeat sub-query phrasing) reuse Tavily results, saving both latency and API quota |
+| Query plan cache ✅ | Normalized user query (lowercased, whitespace-collapsed) | 10 min (`query_plan_cache_ttl_seconds`) | Same question asked twice in a session skips a planning LLM call entirely |
+| Search result cache ✅ | Sub-query string + `max_results` (Decision 9.4) | 1 hr (`search_result_cache_ttl_seconds`) | Different users/turns generating an overlapping sub-query (very common — "best X in Pune" style queries repeat sub-query phrasing) reuse Tavily results, saving both latency and API quota |
 | Final answer cache | Hash of (query + context source set) | Optional, short TTL | Risk of staleness for time-sensitive queries — only worth adding if demo shows repeat questions matter |
 
-Start with `InMemoryCache` (simple dict + TTL, fine for a single-process CLI
-demo); the `Cache` port means swapping in Redis for a multi-instance API
-deployment later is a bootstrap-level config change, not a code change
+`InMemoryCache` (simple dict + TTL, fine for a single-process CLI demo) is
+implemented; the `Cache` port means swapping in Redis for a multi-instance
+API deployment later is a bootstrap-level config change, not a code change
 anywhere else.
 
 ## 8. Future scalability ideas

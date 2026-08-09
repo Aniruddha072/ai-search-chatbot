@@ -127,10 +127,10 @@ Each box is independently completable and independently testable.
 - [x] Unit test: evaluator failure does not propagate to pipeline failure
 
 ### Phase 9 — Caching
-- [ ] `infrastructure/cache/memory_cache.py`: TTL dict-based `Cache` implementation
-- [ ] Wire query-plan caching into `QueryPlanner`
-- [ ] Wire per-sub-query result caching into `SearchOrchestrator`
-- [ ] Unit tests: cache hit skips the underlying call (assert mock not called twice)
+- [x] `infrastructure/cache/memory_cache.py`: TTL dict-based `Cache` implementation
+- [x] Wire query-plan caching into `QueryPlanner`
+- [x] Wire per-sub-query result caching into `SearchOrchestrator`
+- [x] Unit tests: cache hit skips the underlying call (assert mock not called twice)
 
 ### Phase 10 — Resilience hardening
 - [ ] Add `tenacity` retry decorators to Tavily and Groq client calls
