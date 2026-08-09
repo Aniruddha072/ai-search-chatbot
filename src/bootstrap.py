@@ -1,0 +1,54 @@
+"""Composition root: the one place in the codebase that constructs
+concrete infrastructure classes and wires them into a ChatPipeline.
+Everywhere else depends on abstractions or receives already-built
+instances via constructor injection.
+
+Plain function, no @lru_cache (unlike get_settings()): this has exactly
+one natural call site per process - the caller holds the single
+ChatPipeline instance, so there's nothing to memoize here.
+"""
+from src.application.answer_generator import AnswerGenerator
+from src.application.context_builder import ContextBuilder
+from src.application.deduplicator import Deduplicator
+from src.application.pipeline import ChatPipeline
+from src.application.query_planner import QueryPlanner
+from src.application.ranker import HeuristicRanker
+from src.application.search_orchestrator import SearchOrchestrator
+from src.config.settings import get_settings
+from src.infrastructure.content.content_extractor import TrafilaturaContentExtractor
+from src.infrastructure.llm.groq_client import GroqClient
+from src.infrastructure.search.tavily_provider import TavilyProvider
+
+
+def build_chat_pipeline() -> ChatPipeline:
+    settings = get_settings()
+
+    search_orchestrator = SearchOrchestrator(
+        provider=TavilyProvider(api_key=settings.tavily_api_key),
+        timeout_seconds=settings.search_timeout_seconds,
+    )
+    context_builder = ContextBuilder(
+        content_extractor=TrafilaturaContentExtractor(),
+        max_context_sources=settings.max_context_sources,
+        context_token_budget=settings.context_token_budget,
+        content_fetch_timeout_seconds=settings.content_fetch_timeout_seconds,
+    )
+
+    # One GroqClient instance shared between QueryPlanner and AnswerGenerator -
+    # this *is* the "reused async HTTP clients" optimization from decisions.md,
+    # achieved by correct wiring here rather than extra code anywhere else.
+    groq_client = GroqClient(
+        api_key=settings.groq_api_key,
+        fast_model=settings.groq_fast_model,
+        capable_model=settings.groq_capable_model,
+    )
+
+    return ChatPipeline(
+        query_planner=QueryPlanner(groq_client, timeout_seconds=settings.llm_timeout_seconds),
+        search_orchestrator=search_orchestrator,
+        deduplicator=Deduplicator(),
+        ranker=HeuristicRanker(),
+        context_builder=context_builder,
+        answer_generator=AnswerGenerator(groq_client, timeout_seconds=settings.llm_timeout_seconds),
+        max_results_per_query=settings.max_search_results,
+    )
