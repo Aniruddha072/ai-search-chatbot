@@ -356,7 +356,7 @@ Reason:
 
 ### Decision 6.1
 
-Date: 2026-08-06
+Date: 2026-08-09
 
 Implemented:
 `AnswerGenerator` does not catch LLM failures with a fallback the way
@@ -371,7 +371,7 @@ Reason:
 
 ### Decision 6.2
 
-Date: 2026-08-06
+Date: 2026-08-09
 
 Implemented:
 Streaming is deferred to Phase 11, despite the roadmap checklist's
@@ -386,7 +386,7 @@ Reason:
 
 ### Decision 6.3
 
-Date: 2026-08-06
+Date: 2026-08-09
 
 Implemented:
 Citation parsing is defensive: duplicate citations of the same source
@@ -400,7 +400,7 @@ Reason:
 
 ### Decision 7.1
 
-Date: 2026-08-06
+Date: 2026-08-09
 
 Implemented:
 `ChatPipeline` depends on the `Ranker` interface but on the concrete
@@ -415,7 +415,7 @@ Reason:
 
 ### Decision 7.2
 
-Date: 2026-08-06
+Date: 2026-08-09
 
 Implemented:
 `build_chat_pipeline()` is a plain function, not wrapped in
@@ -429,7 +429,7 @@ Reason:
 
 ### Decision 7.3
 
-Date: 2026-08-06
+Date: 2026-08-09
 
 Implemented:
 `ChatPipeline.handle()` has no try/except and no degradation ladder -
@@ -444,7 +444,7 @@ Reason:
 
 ### Decision 8.1
 
-Date: 2026-08-06
+Date: 2026-08-09
 
 Implemented:
 `ragas==0.4.3` is installed via `pip install --no-deps` plus its real
@@ -466,7 +466,7 @@ Reason:
 
 ### Decision 8.2
 
-Date: 2026-08-06
+Date: 2026-08-09
 
 Implemented:
 `AnswerRelevancy` is dropped from scope entirely - only `Faithfulness`
@@ -484,7 +484,7 @@ Reason:
 
 ### Decision 8.3
 
-Date: 2026-08-06
+Date: 2026-08-09
 
 Implemented:
 `Answer` gained an `evaluation: EvaluationResult | None = None` field
@@ -500,7 +500,7 @@ Reason:
 
 ### Decision 8.4
 
-Date: 2026-08-06
+Date: 2026-08-09
 
 Implemented:
 Evaluation is scored against the *full* source set `ContextBuilder`
@@ -515,7 +515,7 @@ Reason:
 
 ### Decision 8.5
 
-Date: 2026-08-06
+Date: 2026-08-09
 
 Implemented:
 `RagasEvaluator` does not reuse the shared `GroqClient`/`AsyncGroq`

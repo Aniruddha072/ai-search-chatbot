@@ -35,3 +35,28 @@ ranking, context building, and Groq-backed query planning all done.
 **State at end of session:** see [`docs/session-handoff.md`](docs/session-handoff.md) (local-only) for exact resume-point details.
 
 ---
+
+## 2026-08-09 — Answer generation through caching (Phases 6–9)
+
+Second working session, 16:34–23:51. Took the pipeline from "plans and
+searches" to a fully wired, cached, RAGAS-scored end-to-end system:
+generation, evaluation, pipeline composition, and caching all landed.
+
+**Phases completed:** [6](docs/phases/phase6.md) (answer generation) ·
+[7](docs/phases/phase7.md) (pipeline wiring) ·
+[8](docs/phases/phase8.md) (RAGAS evaluation) ·
+[9](docs/phases/phase9.md) (caching)
+
+**Commits:** `b959910` → `d1b2d7b` (10 commits). Full history:
+`git log --oneline b959910..d1b2d7b`.
+
+**Highlights worth remembering:**
+- First fully real end-to-end run succeeded in Phase 7 — search, planning, generation, and (once Phase 8 landed) RAGAS scoring, all chained through one real `ChatPipeline.handle()` call against live Tavily/Groq APIs.
+- Phase 8 was the most eventful phase yet: four unrelated real blockers (a C-extension dependency with no Windows wheel, an import bug present in `ragas`'s *newest* release too, an `isinstance` rejection despite "OpenAI-compatible" SDKs, and a metric cut because Groq has no embeddings model) — all resolved by installing/reading/calling the real thing, documented as Decisions 8.1–8.5.
+- Mid-session detour: reproduced (and then honestly failed to reproduce) the Phase 5 JSON-schema-echo bug on request, for a screenshot. 0/20 on the exact original setup — the historical behavior no longer reproduces against the current Groq endpoint, most likely because the hosted model shifted under the same name. Reported as a real negative result, not forced.
+- Caught and fixed a real dating error while writing this entry: Decisions 6.1–8.5 had all inherited the previous session's date (2026-08-06) instead of when they actually happened (2026-08-09) — corrected by cross-checking real commit timestamps rather than assuming.
+- Incidentally found, not fixed: a real gated run returned a Tavily source with a relative `/goto?url=...` link instead of an absolute URL. Logged for Phase 10 rather than chased mid-Phase-9.
+
+**State at end of session:** see [`docs/session-handoff.md`](docs/session-handoff.md) (local-only) for exact resume-point details.
+
+---
