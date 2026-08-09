@@ -65,7 +65,7 @@ layers.
 
 | Layer | Contains | Depends on |
 |---|---|---|
-| **Domain** | Entities (`Query`, `SearchResult`, `Source`, `Answer`, `EvaluationResult`) and interfaces/ports (`SearchProvider`, `LLMProvider`, `Ranker`, `Evaluator`, `Cache`) | Nothing |
+| **Domain** | Entities (`Query`, `SearchResult`, `Source`, `Answer`, `EvaluationResult`) and interfaces/ports (`SearchProvider`, `LLMProvider`, `Ranker`, `Evaluator`, `ContentExtractor`, `Cache`) | Nothing |
 | **Application** | Use-case orchestration: `QueryPlanner`, `SearchOrchestrator`, `Deduplicator`, `Ranker` impl, `ContextBuilder`, `AnswerGenerator`, `EvaluationService`, `ChatPipeline` | Domain only (interfaces, not concrete classes) |
 | **Infrastructure** | Concrete adapters: `TavilyProvider`, `GroqClient`, `RagasEvaluator`, `InMemoryCache`/`RedisCache`, `ContentExtractor` | Domain (implements the ports) |
 | **Presentation** | `cli.py` (chat loop), later `api.py` (FastAPI) | Application |
