@@ -16,6 +16,7 @@ from src.application.query_planner import QueryPlanner
 from src.application.ranker import HeuristicRanker
 from src.application.search_orchestrator import SearchOrchestrator
 from src.config.settings import get_settings
+from src.infrastructure.cache.memory_cache import InMemoryCache
 from src.infrastructure.content.content_extractor import TrafilaturaContentExtractor
 from src.infrastructure.evaluation.ragas_evaluator import RagasEvaluator
 from src.infrastructure.llm.groq_client import GroqClient
@@ -25,9 +26,17 @@ from src.infrastructure.search.tavily_provider import TavilyProvider
 def build_chat_pipeline() -> ChatPipeline:
     settings = get_settings()
 
+    # Two separate cache instances, not one shared one - a raw user question
+    # could in principle collide with a generated sub-query string, and a
+    # shared cache would then return the wrong *type* of cached value.
+    query_plan_cache = InMemoryCache()
+    search_result_cache = InMemoryCache()
+
     search_orchestrator = SearchOrchestrator(
         provider=TavilyProvider(api_key=settings.tavily_api_key),
         timeout_seconds=settings.search_timeout_seconds,
+        cache=search_result_cache,
+        cache_ttl_seconds=settings.search_result_cache_ttl_seconds,
     )
     context_builder = ContextBuilder(
         content_extractor=TrafilaturaContentExtractor(),
@@ -57,7 +66,12 @@ def build_chat_pipeline() -> ChatPipeline:
     )
 
     return ChatPipeline(
-        query_planner=QueryPlanner(groq_client, timeout_seconds=settings.llm_timeout_seconds),
+        query_planner=QueryPlanner(
+            groq_client,
+            timeout_seconds=settings.llm_timeout_seconds,
+            cache=query_plan_cache,
+            cache_ttl_seconds=settings.query_plan_cache_ttl_seconds,
+        ),
         search_orchestrator=search_orchestrator,
         deduplicator=Deduplicator(),
         ranker=HeuristicRanker(),

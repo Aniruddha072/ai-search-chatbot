@@ -7,6 +7,7 @@ import pytest
 from dotenv import load_dotenv
 
 from src.application.query_planner import QueryPlanner
+from src.infrastructure.cache.memory_cache import InMemoryCache
 from src.infrastructure.llm.groq_client import GroqClient
 
 pytestmark = pytest.mark.skipif(
@@ -26,7 +27,7 @@ async def test_real_query_planner_produces_a_valid_query():
         fast_model="llama-3.1-8b-instant",
         capable_model="llama-3.3-70b-versatile",
     )
-    planner = QueryPlanner(llm, timeout_seconds=15.0)
+    planner = QueryPlanner(llm, timeout_seconds=15.0, cache=InMemoryCache(), cache_ttl_seconds=60)
 
     query = await planner.plan("What are the best computer engineering colleges in Pune?")
 

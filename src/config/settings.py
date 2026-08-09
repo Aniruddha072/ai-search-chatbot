@@ -36,6 +36,9 @@ class Settings(BaseSettings):
 
     evaluation_timeout_seconds: float = Field(default=15.0, gt=0)
 
+    query_plan_cache_ttl_seconds: float = Field(default=600.0, gt=0)
+    search_result_cache_ttl_seconds: float = Field(default=3600.0, gt=0)
+
 
 @lru_cache
 def get_settings() -> Settings:

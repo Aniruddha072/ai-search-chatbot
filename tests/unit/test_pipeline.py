@@ -17,6 +17,7 @@ from src.application.search_orchestrator import SearchOrchestrator
 from src.config.prompts.query_planning import QueryPlanResponse
 from src.domain.entities import EvaluationResult, SearchResult
 from src.domain.interfaces import ContentExtractor, Evaluator, LLMProvider, SearchProvider
+from src.infrastructure.cache.memory_cache import InMemoryCache
 
 
 class FakeSearchProvider(SearchProvider):
@@ -71,8 +72,12 @@ def build_pipeline(
     evaluator: Evaluator | None = None,
 ) -> ChatPipeline:
     return ChatPipeline(
-        query_planner=QueryPlanner(llm_provider, timeout_seconds=5.0),
-        search_orchestrator=SearchOrchestrator(search_provider, timeout_seconds=5.0),
+        query_planner=QueryPlanner(
+            llm_provider, timeout_seconds=5.0, cache=InMemoryCache(), cache_ttl_seconds=60
+        ),
+        search_orchestrator=SearchOrchestrator(
+            search_provider, timeout_seconds=5.0, cache=InMemoryCache(), cache_ttl_seconds=60
+        ),
         deduplicator=Deduplicator(),
         ranker=HeuristicRanker(),
         context_builder=ContextBuilder(
