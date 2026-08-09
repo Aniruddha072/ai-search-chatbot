@@ -120,11 +120,11 @@ Each box is independently completable and independently testable.
 - [x] Manual end-to-end smoke test with a real question (made automated/repeatable as a gated integration test rather than a one-off script)
 
 ### Phase 8 — RAGAS evaluation
-- [ ] `infrastructure/evaluation/ragas_evaluator.py`: implement `Evaluator`, wrap RAGAS with Groq as judge LLM
-- [ ] Wire faithfulness, answer_relevancy, context_precision as concurrent metric calls
-- [ ] `application/evaluation_service.py`: non-blocking wrapper — catches evaluator errors, returns `None` on failure
-- [ ] Wire into `ChatPipeline` as the final step
-- [ ] Unit test: evaluator failure does not propagate to pipeline failure
+- [x] `infrastructure/evaluation/ragas_evaluator.py`: implement `Evaluator`, wrap RAGAS with Groq as judge LLM
+- [x] Wire faithfulness, context_precision as concurrent metric calls (answer_relevancy dropped - needs embeddings, Groq has none; see Decision 8.2)
+- [x] `application/evaluation_service.py`: non-blocking wrapper — catches evaluator errors, returns an `EvaluationResult` with `error` set on failure
+- [x] Wire into `ChatPipeline` as the final step
+- [x] Unit test: evaluator failure does not propagate to pipeline failure
 
 ### Phase 9 — Caching
 - [ ] `infrastructure/cache/memory_cache.py`: TTL dict-based `Cache` implementation

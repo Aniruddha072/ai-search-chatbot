@@ -20,8 +20,8 @@ for reference; it is not part of the active codebase.
 Clean architecture, inner layers depending on nothing outward:
 
 - **`src/domain/`** — entities (`Query`, `SearchResult`, `Source`, `Answer`, `EvaluationResult`) and interfaces (`SearchProvider`, `LLMProvider`, `Ranker`, `Evaluator`, `ContentExtractor`, `Cache`). No I/O, no external libraries.
-- **`src/application/`** — orchestration logic that depends only on the interfaces above. `SearchOrchestrator`, `Deduplicator`, `HeuristicRanker`, `ContextBuilder`, `QueryPlanner`, `AnswerGenerator`, `ChatPipeline` implemented; the rest is not yet.
-- **`src/infrastructure/`** — concrete adapters (Tavily, Groq, RAGAS, cache) implementing those interfaces. `TavilyProvider`, `TrafilaturaContentExtractor`, `GroqClient` implemented; the rest is not yet.
+- **`src/application/`** — orchestration logic that depends only on the interfaces above. `SearchOrchestrator`, `Deduplicator`, `HeuristicRanker`, `ContextBuilder`, `QueryPlanner`, `AnswerGenerator`, `ChatPipeline`, `EvaluationService` implemented; the rest is not yet.
+- **`src/infrastructure/`** — concrete adapters (Tavily, Groq, RAGAS, cache) implementing those interfaces. `TavilyProvider`, `TrafilaturaContentExtractor`, `GroqClient`, `RagasEvaluator` implemented; the rest is not yet.
 - **`src/bootstrap.py`** — composition root wiring real Settings-backed instances into one `ChatPipeline`. Implemented.
 - **`src/presentation/`** — CLI entry point. Not yet implemented.
 
@@ -37,7 +37,7 @@ Full pipeline diagram and component responsibilities: [`docs/architecture.md`](d
 - [x] Phase 5 — Query planning
 - [x] Phase 6 — Answer generation
 - [x] Phase 7 — Pipeline wiring
-- [ ] Phase 8 — RAGAS evaluation
+- [x] Phase 8 — RAGAS evaluation
 - [ ] Phase 9 — Caching
 - [ ] Phase 10 — Resilience hardening
 - [ ] Phase 11 — CLI presentation
@@ -60,13 +60,15 @@ src/
 │   ├── context_builder.py      # top-K selection, thin-snippet full-fetch, token-budget enforcement
 │   ├── query_planner.py        # Groq structured-output call -> Query, with single-query fallback
 │   ├── answer_generator.py     # Groq generate() -> cited Answer; failures propagate, no fallback
-│   └── pipeline.py             # ChatPipeline: chains query planning through answer generation
+│   ├── pipeline.py             # ChatPipeline: chains query planning through evaluation
+│   └── evaluation_service.py   # non-blocking Evaluator wrapper: timeout + catch, always returns EvaluationResult
 ├── infrastructure/
 │   ├── search/
 │   │   └── tavily_provider.py  # implements SearchProvider via Tavily's async client
 │   ├── llm/
 │   │   └── groq_client.py      # implements LLMProvider (generate + generate_structured)
-│   ├── evaluation/        (empty)
+│   ├── evaluation/
+│   │   └── ragas_evaluator.py  # implements Evaluator via RAGAS + instructor + Groq
 │   ├── cache/              (empty)
 │   └── content/
 │       └── content_extractor.py  # TrafilaturaContentExtractor implements ContentExtractor
@@ -98,13 +100,16 @@ tests/
 │   ├── test_groq_client.py
 │   ├── test_query_planner.py
 │   ├── test_answer_generator.py
-│   ├── test_pipeline.py          # full chain, real everywhere except SearchProvider/LLMProvider
-│   └── test_bootstrap.py
+│   ├── test_pipeline.py          # full chain, real everywhere except SearchProvider/LLMProvider/Evaluator
+│   ├── test_bootstrap.py
+│   ├── test_ragas_evaluator.py
+│   └── test_evaluation_service.py
 └── integration/
     ├── test_tavily_search.py     # real Tavily call, gated behind RUN_INTEGRATION_TESTS=1
     ├── test_query_planner.py     # real Groq call, gated behind RUN_INTEGRATION_TESTS=1
     ├── test_answer_generator.py  # real Groq call, gated behind RUN_INTEGRATION_TESTS=1
-    └── test_pipeline.py          # full real end-to-end run, gated behind RUN_INTEGRATION_TESTS=1
+    ├── test_ragas_evaluator.py   # real Groq call via RAGAS, gated behind RUN_INTEGRATION_TESTS=1
+    └── test_pipeline.py          # full real end-to-end run (incl. evaluation), gated behind RUN_INTEGRATION_TESTS=1
 ```
 
 ## Setup
@@ -113,5 +118,13 @@ tests/
 python -m venv venv
 source venv/Scripts/activate    # Windows Git Bash; use venv\Scripts\activate.bat on cmd
 pip install -e ".[dev]"
+pip install --no-deps ragas==0.4.3
 cp .env.example .env            # then fill in TAVILY_API_KEY and GROQ_API_KEY
 ```
+
+`ragas` needs the extra `--no-deps` step because its normal install pulls
+in `scikit-network` (a C-extension graph library with no Windows wheel,
+needed only for a synthetic-testset-generation feature this project
+doesn't use) - see [Decision 8.1](docs/decisions.md) for the full
+investigation. Every other real dependency `ragas` needs is already
+listed normally above.

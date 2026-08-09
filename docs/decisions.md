@@ -442,6 +442,91 @@ Reason:
   Phase 7's. Building them now would be speculative ahead of the
   phase that actually owns this concern.
 
+### Decision 8.1
+
+Date: 2026-08-06
+
+Implemented:
+`ragas==0.4.3` is installed via `pip install --no-deps` plus its real
+dependencies listed explicitly in `pyproject.toml`. `ragas` itself is
+deliberately absent from the normal dependency list; README documents
+the extra manual install step.
+
+Reason:
+- `ragas` has a hard, unconditional dependency on `scikit-network` (a
+  C-extension graph library) with zero prebuilt Windows wheels for any
+  Python version - confirmed by probing 3.12/3.13/3.14 explicitly, not
+  assumed. Static analysis of the wheel's source confirmed
+  `scikit-network` is only imported by `ragas/testset/graph.py`
+  (synthetic testset generation), never by anything the evaluation
+  code path touches.
+- Chosen over installing Visual C++ Build Tools (which would let it
+  build normally) because it requires no system-level change, for a
+  dependency this project doesn't use anyway.
+
+### Decision 8.2
+
+Date: 2026-08-06
+
+Implemented:
+`AnswerRelevancy` is dropped from scope entirely - only `Faithfulness`
+and `ContextPrecisionWithoutReference` are wired.
+
+Reason:
+- `AnswerRelevancy` requires an embeddings model (confirmed via its
+  `MetricWithEmbeddings` base class). Groq doesn't serve one - verified
+  directly with a real `client.embeddings.create(...)` call, which
+  404s with `model_not_found`, not assumed from the model list alone.
+- Adding an embeddings provider (local `sentence-transformers` or a
+  paid API) just for one of three metrics would introduce a new
+  dependency category for a project deliberately scoped to Tavily +
+  Groq only.
+
+### Decision 8.3
+
+Date: 2026-08-06
+
+Implemented:
+`Answer` gained an `evaluation: EvaluationResult | None = None` field
+(a Phase 1 entity extended), rather than changing
+`ChatPipeline.handle()`'s return type to a tuple.
+
+Reason:
+- Keeps `handle() -> Answer` consistent with how the roadmap describes
+  it throughout every phase - the answer now optionally carries its
+  own score, rather than introducing a second return shape this late.
+- Defaults to `None`, so every prior phase's `Answer(...)` construction
+  keeps working unchanged.
+
+### Decision 8.4
+
+Date: 2026-08-06
+
+Implemented:
+Evaluation is scored against the *full* source set `ContextBuilder`
+produced, not `answer.sources` (the subset the model actually cited).
+
+Reason:
+- Scoring faithfulness/context-precision against a model's own
+  self-reported citations would be circular - it would only ever be
+  graded against the evidence it chose to show. Verified with a
+  dedicated test asserting a source the model never cited was still
+  passed to evaluation.
+
+### Decision 8.5
+
+Date: 2026-08-06
+
+Implemented:
+`RagasEvaluator` does not reuse the shared `GroqClient`/`AsyncGroq`
+instance from Decision 7.1's "reused client" optimization.
+
+Reason:
+- `instructor.from_provider(...)` builds its own client via its own
+  construction path - there's no shared instance to pass in here.
+  Noted explicitly as a real limitation rather than silently diverging
+  from the established pattern without explanation.
+
 ---
 
 ## 1. Key design decisions
@@ -486,7 +571,7 @@ answer quality is what the user actually judges, so it gets the bigger model.
 This alone is one of the larger latency/cost wins available (the planning
 call is 3-5x cheaper and faster than the generation call).
 
-**1.6 RAGAS runs reference-free, synchronously, but non-blocking on failure.**
+**1.6 RAGAS runs reference-free, synchronously, but non-blocking on failure.** ✅ *Implemented in Phase 8, with one correction: **answer relevancy was dropped** (Decision 8.2) - it requires an embeddings model, and Groq doesn't serve one, verified with a real 404. Faithfulness and context precision run exactly as planned: concurrently, non-blocking on failure.*
 Because there's no ground-truth answer at chat time, only reference-free
 RAGAS metrics apply: **faithfulness** (is the answer supported by the
 retrieved context — the most important one for a grounded chatbot),
@@ -513,7 +598,8 @@ agnostic by construction, so `api.py` is additive later, not a rewrite.
 | Single search provider | Simpler, meets constraint, cheaper | Coverage limited to one index | Interface allows swap/fan-out later |
 | Snippet-first, selective fetch | Fast, cheap | Occasionally thinner context than full pages | Full-fetch triggers for top-K + short snippets |
 | Heuristic ranking (no embeddings) | No extra model/latency/cost | Lower ranking precision than semantic rerank | Ranker port makes upgrade a one-file change |
-| Sync RAGAS in the request path | User sees eval score immediately (per spec) | Adds real latency (RAGAS = more LLM calls) | Parallelize metrics; fail-open (don't block answer) |
+| Sync RAGAS in the request path ✅ | User sees eval score immediately (per spec) | Adds real latency (RAGAS = more LLM calls) | Parallelize metrics; fail-open (don't block answer) |
+| Dropped `answer_relevancy` ✅ | No new embeddings provider needed | Only 2 of 3 originally-planned metrics scored | Faithfulness + context precision still catch the main failure modes |
 | LLM-decided query count | Generalizes better than rules | Occasional over/under-generation | Hard cap at 5 in schema; min 1 enforced by validation |
 | In-memory cache by default | Zero infra to start | Doesn't survive restarts, not multi-instance | `Cache` port swaps to Redis with one config change |
 
@@ -527,7 +613,7 @@ agnostic by construction, so `api.py` is additive later, not a rewrite.
 - **Reused async HTTP clients** ✅ — one `GroqClient` (wrapping one `AsyncGroq`) constructed once in `bootstrap.py` and shared between `QueryPlanner` and `AnswerGenerator`, not recreated per request. *(Phase 7 — required no new code, just correct composition-root wiring; see Decision 7.1's phase log.)*
 - **Short-circuit for simple queries** — if the planner returns exactly 1 query with high confidence, skip the heavier multi-source dedup/rank path (still runs, but on a trivially small set) rather than adding artificial work.
 - **Selective full-page fetch** — only top-K sources with thin snippets get fetched; this is the single biggest avoidable latency cost in naive RAG pipelines, so it's opt-in per source, not global.
-- **Concurrent RAGAS metrics** — faithfulness / answer relevancy / context precision computed in parallel, not sequentially.
+- **Concurrent RAGAS metrics** ✅ — faithfulness and context precision computed in parallel via `asyncio.gather` (answer relevancy dropped, Decision 8.2). *(Phase 8)*
 
 ## 4. Token optimization strategies
 
@@ -544,18 +630,18 @@ Three distinct concurrency points, each using the right primitive:
 
 1. **Search fan-out** — `asyncio.gather(*[provider.search(q) for q in queries], return_exceptions=True)`. `return_exceptions=True` is deliberate: one failed sub-query must not fail the whole turn.
 2. **Content extraction** — fetching/parsing the (few) full pages for thin-snippet sources is I/O + light CPU; run via `asyncio.gather` over async fetches, with parsing (trafilatura) offloaded to a thread pool (`asyncio.to_thread`) since HTML parsing is blocking CPU work.
-3. **RAGAS metrics** — the 2–3 reference-free metrics are independent given (question, answer, contexts) and are gathered concurrently rather than computed in RAGAS's default sequential batch mode where avoidable.
+3. **RAGAS metrics** ✅ — the 2 reference-free metrics actually implemented (Decision 8.2) are independent given (question, answer, contexts) and are gathered concurrently via `asyncio.gather`, not computed in RAGAS's default sequential batch mode. *(Phase 8)*
 
-Per-call timeouts wrap all three (`asyncio.wait_for`), because an interactive chatbot must never let one slow provider call stall the whole turn indefinitely.
+Per-call timeouts wrap all four points now (search, content-fetch, LLM calls, and evaluation - all ✅), because an interactive chatbot must never let one slow provider call stall the whole turn indefinitely.
 
 ## 6. Error handling strategy
 
 - **Retry with backoff** (via `tenacity`) on transient failures from Tavily and Groq — network errors, 429/5xx — with a small max-attempt count (2–3) so retries don't themselves become the latency problem.
-- **Per-stage timeout budgets** — search, generation, and evaluation each get their own timeout; a stage that exceeds it fails independently rather than hanging the turn.
+- **Per-stage timeout budgets** ✅ — search, content-fetch, LLM calls, and evaluation each get their own timeout; a stage that exceeds it fails independently rather than hanging the turn.
 - **Graceful degradation ladder**, not all-or-nothing failure:
-  - Some sub-queries fail → proceed with whatever results returned (as long as ≥1 succeeded).
-  - All search fails → tell the user search is unavailable rather than silently answering ungrounded (never let Groq quietly answer from parametric memory and present it as sourced).
-  - RAGAS fails or times out → return the answer with `evaluation: null` + a logged warning, never block the answer on it.
+  - Some sub-queries fail → proceed with whatever results returned (as long as ≥1 succeeded). ✅ *(Phase 2)*
+  - All search fails → tell the user search is unavailable rather than silently answering ungrounded (never let Groq quietly answer from parametric memory and present it as sourced). *`ChatPipeline` currently just returns a no-sources cite-or-refuse answer instead - reasonable, but the explicit user-facing message is still Phase 10.*
+  - RAGAS fails or times out → return the answer with `evaluation: null` + a logged warning, never block the answer on it. ✅ *(Phase 8, `EvaluationService`)*
   - Groq generation fails after retries → surface a clear "couldn't generate an answer, please retry" rather than a stack trace.
 - **Typed exceptions per layer** (`SearchProviderError`, `LLMGenerationError`, `EvaluationError`) caught at the `ChatPipeline` boundary, logged with a per-turn correlation ID, translated into a single well-shaped error response for the presentation layer.
 - **Input validation at the boundary** — empty/absurdly long user input rejected before it reaches the planner, not after burning an LLM call.
