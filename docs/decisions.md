@@ -848,6 +848,36 @@ Reason:
   exception, and the display layer shouldn't have to trust that every
   failure includes one.
 
+### Decision 11.6
+
+Date: 2026-08-10
+
+Implemented:
+`presentation/cli.py`'s Ctrl-C handling moved from two in-coroutine
+`try/except KeyboardInterrupt` blocks inside `main()` to a single
+`except KeyboardInterrupt:` wrapping `asyncio.run(main())` itself, in a
+new `run()` function.
+
+Reason:
+- Found via live dogfooding, then root-caused from a real production
+  traceback rather than guessed at: the exception delivered into
+  `main()`'s coroutine at its current await point is
+  `asyncio.CancelledError`, not `KeyboardInterrupt` - `asyncio.run()`
+  cancels the running task on interrupt, and only *afterward*
+  re-raises the actual `KeyboardInterrupt` from its own top-level
+  frame (documented CPython 3.11+ `asyncio.Runner` behavior), after
+  `main()` has already been torn down. No `try/except` placed
+  anywhere inside `main()`'s own coroutine can catch an exception
+  raised by a different, outer function once that coroutine no
+  longer exists - the old handlers were structurally incapable of
+  ever catching it, not just unlucky. Tracked as GitHub issue #2
+  (closed): a real interactive-terminal reproduction confirmed the
+  crash, though 14 automated `CTRL_C_EVENT` reproduction attempts
+  (piped stdin, then a genuine new Win32 console) never triggered the
+  underlying timing-dependent race - the fix was verified via a
+  deterministic regression test forcing the exact mechanism, plus the
+  user's own live Ctrl-C confirmation against the fix.
+
 ---
 
 ## 1. Key design decisions

@@ -60,3 +60,24 @@ generation, evaluation, pipeline composition, and caching all landed.
 **State at end of session:** see [`docs/session-handoff.md`](docs/session-handoff.md) (local-only) for exact resume-point details.
 
 ---
+
+## 2026-08-10 — Resilience hardening through CLI, then two real bugs (Phases 10–11)
+
+Third working session, 12:57–20:32. Took the pipeline from "works but fragile" to "resilient and actually talkable-to": retries, typed exceptions, and graceful degradation landed in Phase 10, then a real interactive streaming CLI in Phase 11 — the first time this project could be used by a human typing a question, not just exercised by tests. Dogfooding that CLI immediately surfaced two real bugs, both taken through a brand-new discover → issue → fix → verify → close workflow adopted mid-session.
+
+**Phases completed:** [10](docs/phases/phase10.md) (resilience hardening) · [11](docs/phases/phase11.md) (CLI presentation)
+
+**Commits:** `19300f9` → `3727303` (7 commits). Full history: `git log --oneline 19300f9..3727303`.
+
+**Highlights worth remembering:**
+- Phase 10: typed exception hierarchy (`SearchProviderError`/`LLMGenerationError`/`EvaluationError`), `tenacity` retries targeting only exception sets verified against real Groq/Tavily SDK source (not guessed), and a full graceful-degradation ladder so `ChatPipeline.handle()` never raises. Also closed the Phase 9-deferred Tavily relative-URL finding.
+- Phase 11: streaming answers token-by-token via a new `StreamedAnswer` wrapper — verified first that an async generator can't itself `return` a value (a real `SyntaxError`), which is exactly why a wrapper object was needed instead of a bare generator. Manually smoke-tested the real CLI end-to-end against live APIs before calling it done.
+- **New standing project workflow, adopted this session:** discover → reproduce → decide if it's worth tracking → GitHub issue (before fixing) → fix → regression test → verify → commit (referencing the issue) → close. Installed and authenticated GitHub CLI (`gh`) for the first time to support it.
+- **Bug 1:** a RAGAS evaluation timeout raised a bare `TimeoutError()` whose `str()` is `''` (verified directly) — that blank string was falsy, so both the log line and the CLI's `if evaluation.error:` check silently treated a real failure as if none occurred. Fixed with a type-name fallback plus an `is not None` check instead of truthiness. Verified via an isolated script driving the real `ChatPipeline`/CLI wiring with zero network calls, since the Groq account was mid-incident on its own rate limit when this was found.
+- **Bug 2:** Ctrl-C at the CLI prompt crashed with a raw `KeyboardInterrupt`/`CancelledError` traceback. Root-caused precisely from a real production traceback: `asyncio.run()` cancels the running task (delivering `CancelledError`, not `KeyboardInterrupt`, into whatever it was awaiting) and then re-raises the real `KeyboardInterrupt` from its own top-level frame, after `main()` has already been torn down — no try/except placed anywhere inside `main()`'s coroutine could ever catch that. 14 automated repro attempts (piped stdin, then a genuine new Win32 console with real `CTRL_C_EVENT` delivery) never triggered the race, which turned out to be expected — a real idle terminal prompt is exactly the condition most likely to hit it, and the fix was verified conclusively via a deterministic regression test plus the user's own live Ctrl-C confirmation, not via forcing the race itself.
+- Github issue #1 (an overly-detailed first draft) was superseded by the shortened, actually-used #2 - both closed, #1 kept open-turned-closed as the original investigation record rather than deleted.
+- Groq's daily token quota (100k) ran out entirely mid-session from live dogfooding - several verification steps had to route around it (isolated no-network scripts, mocked regression tests, one deliberately-deferred live re-test) rather than spend what was left chasing it.
+
+**State at end of session:** see [`docs/session-handoff.md`](docs/session-handoff.md) (local-only) for exact resume-point details.
+
+---
