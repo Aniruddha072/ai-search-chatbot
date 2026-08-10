@@ -824,6 +824,30 @@ Reason:
   layer actually knows what's already been shown, and for a live
   stream, that's the presentation layer (`cli.py`), not `ChatPipeline`.
 
+### Decision 11.5
+
+Date: 2026-08-10
+
+Implemented:
+`EvaluationService`'s caught-exception handling falls back to
+`type(exc).__name__` when `str(exc)` is blank, and `cli.py`'s
+`_print_evaluation()` checks `evaluation.error is not None` rather than
+a truthy check.
+
+Reason:
+- Found via live dogfooding, not a design review: a real evaluation
+  timeout from `asyncio.wait_for` raises a bare `TimeoutError()`, whose
+  `str()` is empirically `''` (verified directly against the real
+  exception, not assumed). That blank string flowed into
+  `EvaluationResult.error`, which is falsy - so `_print_evaluation`'s
+  original `if evaluation.error:` check silently treated a genuine
+  failure as if none had occurred, printing nothing at all. Both the
+  log line and the CLI display were undiagnosable from the same root
+  cause. Fixed at both layers rather than just one, since any
+  `Evaluator` implementation could plausibly raise a blank-message
+  exception, and the display layer shouldn't have to trust that every
+  failure includes one.
+
 ---
 
 ## 1. Key design decisions

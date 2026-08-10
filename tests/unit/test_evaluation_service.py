@@ -58,3 +58,29 @@ async def test_returns_error_result_without_raising_on_timeout():
 
     assert result.error is not None
     assert result.faithfulness is None
+
+
+@pytest.mark.asyncio
+async def test_blank_exception_message_falls_back_to_exception_type_name():
+    """A bare exception raised with no message (str(exc) == '') must still
+    produce a non-blank, diagnosable error - not silently collapse into
+    an empty string that looks identical to "no error occurred".
+    """
+    service = EvaluationService(FakeEvaluator(raise_exc=RuntimeError()), timeout_seconds=5.0)
+
+    result = await service.evaluate("q", "a", ["ctx"])
+
+    assert result.error == "RuntimeError"
+
+
+@pytest.mark.asyncio
+async def test_real_timeout_error_message_is_not_blank():
+    """asyncio.wait_for raises a bare TimeoutError() whose str() is '' -
+    verified directly against the real exception, not assumed. The
+    resulting EvaluationResult.error must name the failure, not be empty.
+    """
+    service = EvaluationService(FakeEvaluator(delay=1.0), timeout_seconds=0.05)
+
+    result = await service.evaluate("q", "a", ["ctx"])
+
+    assert result.error == "TimeoutError"

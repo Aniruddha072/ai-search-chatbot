@@ -26,5 +26,10 @@ class EvaluationService:
                 timeout=self._timeout_seconds,
             )
         except Exception as exc:
-            logger.warning("evaluation failed, returning null scores: %s", exc)
-            return EvaluationResult(error=str(exc))
+            # str(exc) is '' for exceptions raised with no message (e.g. a
+            # bare asyncio.wait_for timeout) - falling back to the type
+            # name keeps both the log line and EvaluationResult.error
+            # non-blank, so a timeout doesn't look identical to "no error".
+            message = str(exc) or type(exc).__name__
+            logger.warning("evaluation failed, returning null scores: %s", message)
+            return EvaluationResult(error=message)

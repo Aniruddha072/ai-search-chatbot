@@ -45,7 +45,10 @@ def _print_evaluation(answer: Answer) -> None:
     evaluation = answer.evaluation
     if evaluation is None:
         return
-    if evaluation.error:
+    # `is not None`, not a truthy check - an empty-but-present error string
+    # is still a real failure and must not be treated the same as "no
+    # error occurred".
+    if evaluation.error is not None:
         print(f"\n(evaluation unavailable: {evaluation.error})")
         return
     scores = []
