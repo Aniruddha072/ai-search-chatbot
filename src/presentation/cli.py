@@ -87,17 +87,27 @@ async def main() -> None:
     while True:
         try:
             user_query = await _read_line("> ")
-        except (EOFError, KeyboardInterrupt):
+        except EOFError:
             print("\nGoodbye.")
             return
 
-        try:
-            await _handle_turn(pipeline, user_query)
-        except KeyboardInterrupt:
-            print("\nGoodbye.")
-            return
+        await _handle_turn(pipeline, user_query)
         print()
 
 
+def run() -> None:
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        # A try/except placed anywhere inside main()'s own coroutine
+        # cannot catch this: asyncio.run() cancels the running task
+        # (delivering CancelledError into whatever it was awaiting, not
+        # KeyboardInterrupt) and then re-raises the real KeyboardInterrupt
+        # from its own top-level frame, after main() has already been
+        # torn down. This is the only scope that actually receives it.
+        # See GitHub issue #2.
+        print("\nGoodbye.")
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    run()

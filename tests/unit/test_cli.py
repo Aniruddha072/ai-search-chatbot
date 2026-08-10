@@ -1,10 +1,12 @@
-"""Covers only the _print_evaluation blank-error regression - the rest of
-cli.py (the stdin loop, Ctrl-C/EOF handling) is interactive UI behavior
-verified by manual smoke test, not unit-testable in isolation.
+"""Covers the _print_evaluation blank-error regression and the
+KeyboardInterrupt-scope regression (GitHub issue #2). The stdin read loop
+itself is interactive UI behavior verified by manual smoke test, not
+unit-testable in isolation.
 """
 import pytest
 
 from src.domain.entities import Answer, EvaluationResult, Query
+from src.presentation import cli
 from src.presentation.cli import _print_evaluation
 
 
@@ -82,3 +84,23 @@ async def test_evaluation_service_blank_exception_flows_through_to_cli_output(ca
 
     captured = capsys.readouterr()
     assert "evaluation unavailable: RuntimeError" in captured.out
+
+
+def test_run_exits_cleanly_on_keyboard_interrupt(monkeypatch, capsys):
+    """Regression test for GitHub issue #2: asyncio.run() cancels the
+    running task and re-raises KeyboardInterrupt from its own top-level
+    frame, after main() has already been torn down - no try/except placed
+    inside main()'s coroutine can ever catch it. run() must catch it at
+    that outer scope instead, exactly where asyncio.run() is called.
+    """
+
+    def fake_asyncio_run(coro):
+        coro.close()  # avoid a "coroutine was never awaited" warning
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(cli.asyncio, "run", fake_asyncio_run)
+
+    cli.run()  # must not raise
+
+    captured = capsys.readouterr()
+    assert "Goodbye." in captured.out
