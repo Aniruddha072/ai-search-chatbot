@@ -40,7 +40,7 @@ Full pipeline diagram and component responsibilities: [`docs/architecture.md`](d
 - [x] Phase 8 — RAGAS evaluation
 - [x] Phase 9 — Caching
 - [x] Phase 10 — Resilience hardening
-- [ ] Phase 11 — CLI presentation
+- [x] Phase 11 — CLI presentation
 - [ ] Phase 12 — Testing
 - [ ] Phase 13 — Observability & polish
 - [ ] Phase 14 — Optional: FastAPI layer
@@ -60,14 +60,14 @@ src/
 │   ├── ranker.py               # HeuristicRanker: weighted provider/keyword/recency scoring
 │   ├── context_builder.py      # top-K selection, thin-snippet full-fetch, token-budget enforcement
 │   ├── query_planner.py        # Groq structured-output call -> Query, with single-query fallback
-│   ├── answer_generator.py     # Groq generate() -> cited Answer; failures propagate to ChatPipeline
-│   ├── pipeline.py             # ChatPipeline: chains query planning through evaluation, always returns Answer
+│   ├── answer_generator.py     # Groq generate()/generate_streaming() -> cited Answer; failures propagate to ChatPipeline
+│   ├── pipeline.py             # ChatPipeline: chains query planning through evaluation; handle() + handle_streaming(), always returns Answer
 │   └── evaluation_service.py   # non-blocking Evaluator wrapper: timeout + catch, always returns EvaluationResult
 ├── infrastructure/
 │   ├── search/
 │   │   └── tavily_provider.py  # implements SearchProvider via Tavily's async client; retries + SearchProviderError + URL filter
 │   ├── llm/
-│   │   └── groq_client.py      # implements LLMProvider (generate + generate_structured); retries + LLMGenerationError
+│   │   └── groq_client.py      # implements LLMProvider (generate + generate_structured + generate_stream); retries + LLMGenerationError
 │   ├── evaluation/
 │   │   └── ragas_evaluator.py  # implements Evaluator via RAGAS + instructor + Groq; wraps failures as EvaluationError
 │   ├── cache/
@@ -81,7 +81,8 @@ src/
 │       ├── query_planning.py       # loads the .txt + QueryPlanResponse schema
 │       ├── answer_generation.txt   # cite-or-refuse system prompt, plain text
 │       └── answer_generation.py    # loads the .txt (no schema - free text, not structured)
-├── presentation/          (empty)
+├── presentation/
+│   └── cli.py             # interactive chat loop: streams answers, prints sources + RAGAS scores, `python -m src.presentation.cli`
 └── utils/
     ├── logging.py        # structured logging with per-turn correlation IDs
     └── token_counter.py  # approximate token counting (char-based heuristic)
@@ -110,7 +111,7 @@ tests/
 └── integration/
     ├── test_tavily_search.py     # real Tavily call, gated behind RUN_INTEGRATION_TESTS=1
     ├── test_query_planner.py     # real Groq call, gated behind RUN_INTEGRATION_TESTS=1
-    ├── test_answer_generator.py  # real Groq call, gated behind RUN_INTEGRATION_TESTS=1
+    ├── test_answer_generator.py    # incl. generate_streaming()/StreamedAnswer  # real Groq call, gated behind RUN_INTEGRATION_TESTS=1
     ├── test_ragas_evaluator.py   # real Groq call via RAGAS, gated behind RUN_INTEGRATION_TESTS=1
     └── test_pipeline.py          # full real end-to-end run (incl. evaluation), gated behind RUN_INTEGRATION_TESTS=1
 ```
@@ -131,3 +132,13 @@ needed only for a synthetic-testset-generation feature this project
 doesn't use) - see [Decision 8.1](docs/decisions.md) for the full
 investigation. Every other real dependency `ragas` needs is already
 listed normally above.
+
+## Running
+
+```bash
+python -m src.presentation.cli
+```
+
+Interactive terminal chat: ask a question, watch the answer stream in
+token-by-token, then see its sources and RAGAS scores. Ctrl-C or Ctrl-D
+(EOF) exits cleanly.

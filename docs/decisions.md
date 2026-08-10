@@ -384,6 +384,11 @@ Reason:
   to validate against until the CLI (Phase 11) exists to actually print
   tokens as they arrive.
 
+✅ *Implemented in Phase 11, exactly as deferred here - see Decisions
+11.1-11.4 for how the "citation parsing needs the complete text"
+tension above was resolved (a `StreamedAnswer` wrapper, not a bare
+generator).*
+
 ### Decision 6.3
 
 Date: 2026-08-09
@@ -737,6 +742,88 @@ Reason:
   handle. Honors the explicit plan recorded in Phase 9's build log to
   address this in Phase 10.
 
+### Decision 11.1
+
+Date: 2026-08-10
+
+Implemented:
+Streaming is built as a `StreamedAnswer` wrapper object around
+`LLMProvider.generate_stream()`'s async generator, not a bare async
+generator function returning the final `Answer` itself.
+
+Reason:
+- Verified before writing any code: an `async def` function containing
+  `yield` can only `return` with no value - `return some_value` inside
+  an async generator is a `SyntaxError`. Citation parsing needs the
+  *complete* answer text, which a partial stream can't provide, so
+  something has to hold the accumulated text until the stream is
+  exhausted and then build the `Answer` from it. `StreamedAnswer` is
+  that something: iterating it yields chunks as they arrive (for
+  printing), and `build_answer()` afterward parses citations from what
+  accumulated - one Groq call, not two.
+
+### Decision 11.2
+
+Date: 2026-08-10
+
+Implemented:
+`GroqClient.generate_stream()`'s retry only wraps *acquiring* the
+stream (the `chat.completions.create(..., stream=True)` call itself),
+never iteration over already-yielded chunks. A failure mid-stream
+raises `LLMGenerationError` immediately, not retried.
+
+Reason:
+- Once a chunk has been yielded to a caller that may already have
+  printed it to a terminal, silently retrying and re-yielding from the
+  start would duplicate visible output the user already saw. This is a
+  deliberate asymmetry with Phase 10's retry policy for `generate()`/
+  `generate_structured()`, where nothing is visible to anyone until the
+  full response returns.
+
+### Decision 11.3
+
+Date: 2026-08-10
+
+Implemented:
+Each chunk wait in `StreamedAnswer.__aiter__()` is individually
+timeout-bounded (reusing the existing `llm_timeout_seconds` /
+`AnswerGenerator._timeout_seconds` budget), rather than the whole
+stream sharing one fixed overall timeout.
+
+Reason:
+- An overall timeout would cut off a long-but-healthy answer the same
+  way a stalled connection would, since streaming delivers the same
+  total content incrementally instead of all at once. Bounding the gap
+  between chunks instead means a stream that keeps producing chunks
+  within that window can run for as long as the answer genuinely takes;
+  only an actual stall counts as a timeout. Needed no new `Settings`
+  field - the existing per-call LLM timeout budget already means the
+  right thing here.
+
+### Decision 11.4
+
+Date: 2026-08-10
+
+Implemented:
+`ChatPipeline.handle_streaming()` does not catch a generation failure
+the way `handle()`'s try/except does. `_prepare()` (validation, zero-
+sources) is shared and degrades identically in both methods, but once
+`AnswerGenerator.generate_streaming()`'s stream starts being consumed,
+a failure propagates to the caller uncaught.
+
+Reason:
+- `handle()` can safely swap in a fixed "having trouble generating an
+  answer" message because nothing has been shown to the user yet - the
+  whole response arrives at once or not at all. `handle_streaming()`
+  has no equivalent safe move: by the time a mid-stream failure occurs,
+  some of the real answer may already be visible wherever the caller is
+  printing it, so there's nothing honest left to silently replace it
+  with. Matches the original pre-Phase-10 reasoning for why
+  `AnswerGenerator` itself doesn't catch its own failures (Decision
+  6.1) - deciding what the user sees on failure belongs to whichever
+  layer actually knows what's already been shown, and for a live
+  stream, that's the presentation layer (`cli.py`), not `ChatPipeline`.
+
 ---
 
 ## 1. Key design decisions
@@ -795,9 +882,12 @@ pipeline still returns the answer with `evaluation: null` rather than failing
 the user-facing turn — evaluation is an observability feature, not a gate the
 user should ever be blocked on.
 
-**1.7 CLI first.**
-Validates the pipeline end-to-end fastest. `ChatPipeline` is presentation-
-agnostic by construction, so `api.py` is additive later, not a rewrite.
+**1.7 CLI first.** ✅ *Implemented in Phase 11 (`presentation/cli.py`).
+Validates the pipeline end-to-end fastest. `ChatPipeline` stayed
+presentation-agnostic by construction through Phases 9-10 (caching,
+resilience) with zero changes needed to accommodate the eventual CLI -
+`handle_streaming()` was the only new surface it needed to add, and
+`api.py` remains additive later, not a rewrite.*
 
 ---
 
@@ -819,7 +909,7 @@ agnostic by construction, so `api.py` is additive later, not a rewrite.
 
 - **Parallel search fan-out** — all sub-queries hit Tavily concurrently via `asyncio.gather`, not sequentially.
 - **Model tiering** — small/fast model for planning, larger model only for the user-facing answer.
-- **Streaming the final answer** — Groq supports token streaming; the CLI (and later API via SSE) should stream the answer as it's generated rather than waiting for the full completion, so perceived latency drops even though total tokens/time is unchanged.
+- **Streaming the final answer** ✅ — the CLI streams the answer token-by-token as it's generated rather than waiting for the full completion, so perceived latency drops even though total tokens/time is unchanged. *(Phase 11; a later FastAPI layer, Phase 14, can expose the same `ChatPipeline.handle_streaming()` over SSE with no pipeline changes.)*
 - **Reused async HTTP clients** ✅ — one `GroqClient` (wrapping one `AsyncGroq`) constructed once in `bootstrap.py` and shared between `QueryPlanner` and `AnswerGenerator`, not recreated per request. *(Phase 7 — required no new code, just correct composition-root wiring; see Decision 7.1's phase log.)*
 - **Short-circuit for simple queries** — if the planner returns exactly 1 query with high confidence, skip the heavier multi-source dedup/rank path (still runs, but on a trivially small set) rather than adding artificial work.
 - **Selective full-page fetch** — only top-K sources with thin snippets get fetched; this is the single biggest avoidable latency cost in naive RAG pipelines, so it's opt-in per source, not global.

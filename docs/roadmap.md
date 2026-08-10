@@ -110,7 +110,7 @@ Each box is independently completable and independently testable.
 
 ### Phase 6 — Answer generation
 - [x] `config/prompts/answer_generation.py`: grounded/cite-or-refuse system prompt
-- [x] `infrastructure/llm/groq_client.py`: generation method using the capable model (non-streaming; streaming deferred to Phase 11 - no real consumer exists yet)
+- [x] `infrastructure/llm/groq_client.py`: generation method using the capable model (non-streaming; streaming implemented in Phase 11 once the CLI existed to actually consume it - Decision 6.2)
 - [x] `application/answer_generator.py`: build indexed source list, call Groq, parse citation markers into `Answer`
 - [x] Unit tests: mocked Groq output with citations mapped back to correct `Source` objects
 
@@ -141,10 +141,10 @@ Each box is independently completable and independently testable.
 - [x] Fold the Phase 9-deferred Tavily relative-URL finding into `TavilyProvider.search()` (drop non-absolute URLs)
 
 ### Phase 11 — CLI presentation
-- [ ] `presentation/cli.py`: interactive loop reading stdin, calling `ChatPipeline`
-- [ ] Stream answer tokens to stdout as they arrive
-- [ ] Print sources and RAGAS scores after the answer
-- [ ] Handle Ctrl-C / empty input gracefully
+- [x] `presentation/cli.py`: interactive loop reading stdin, calling `ChatPipeline`
+- [x] Stream answer tokens to stdout as they arrive
+- [x] Print sources and RAGAS scores after the answer
+- [x] Handle Ctrl-C / empty input gracefully
 
 ### Phase 12 — Testing
 - [ ] Unit test coverage for every `application/` module (providers/LLM mocked)
