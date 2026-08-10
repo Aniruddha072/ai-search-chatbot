@@ -52,6 +52,10 @@ class FakeLLMProvider(LLMProvider):
     async def generate(self, prompt: str, *, system_prompt: str | None = None) -> str:
         return self._generate_response
 
+    async def generate_stream(self, prompt, *, system_prompt=None):
+        if self._generate_response:
+            yield self._generate_response
+
 
 class FakeEvaluator(Evaluator):
     def __init__(
@@ -267,6 +271,10 @@ async def test_empty_query_is_rejected_before_query_planning():
         async def generate(self, prompt, *, system_prompt=None):
             raise AssertionError("AnswerGenerator should never be called for empty input")
 
+        async def generate_stream(self, prompt, *, system_prompt=None):
+            raise AssertionError("AnswerGenerator should never be called for empty input")
+            yield  # pragma: no cover - makes this an async generator function
+
     pipeline = build_pipeline(FakeSearchProvider({}), ExplodingLLMProvider())
 
     answer = await pipeline.handle("   ")
@@ -284,6 +292,10 @@ async def test_overlong_query_is_rejected_before_query_planning():
 
         async def generate(self, prompt, *, system_prompt=None):
             raise AssertionError("AnswerGenerator should never be called for overlong input")
+
+        async def generate_stream(self, prompt, *, system_prompt=None):
+            raise AssertionError("AnswerGenerator should never be called for overlong input")
+            yield  # pragma: no cover - makes this an async generator function
 
     pipeline = build_pipeline(FakeSearchProvider({}), ExplodingLLMProvider())
 
@@ -319,6 +331,10 @@ async def test_answer_generation_failure_degrades_gracefully():
         async def generate(self, prompt, *, system_prompt=None):
             raise RuntimeError("groq exploded after exhausting retries")
 
+        async def generate_stream(self, prompt, *, system_prompt=None):
+            raise RuntimeError("groq exploded after exhausting retries")
+            yield  # pragma: no cover - makes this an async generator function
+
     pipeline = build_pipeline(search_provider, FailingLLMProvider())
 
     answer = await pipeline.handle("best computer engineering colleges in Pune")
@@ -326,3 +342,121 @@ async def test_answer_generation_failure_degrades_gracefully():
     assert answer.sources == ()
     assert answer.evaluation is None
     assert "having trouble generating an answer" in answer.text
+
+
+@pytest.mark.asyncio
+async def test_handle_streaming_yields_the_same_text_handle_returns():
+    sub_query = "best computer engineering colleges pune"
+    search_provider = FakeSearchProvider(
+        {
+            sub_query: [
+                SearchResult(
+                    url="https://example.com/pccoe",
+                    title="PCCOE Admissions",
+                    snippet="PCCOE, Pune offers a well-regarded Computer Engineering program.",
+                    source_query=sub_query,
+                    provider_score=0.9,
+                )
+            ]
+        }
+    )
+    llm_provider = FakeLLMProvider(
+        structured_response=QueryPlanResponse(
+            intent="find CE colleges", complexity="simple", queries=[sub_query]
+        ),
+        generate_response="PCCOE is a great choice [1].",
+    )
+    pipeline = build_pipeline(search_provider, llm_provider)
+
+    stream = await pipeline.handle_streaming("best computer engineering colleges in Pune")
+    received = [chunk async for chunk in stream]
+    answer = await stream.get_answer()
+
+    assert "".join(received) == "PCCOE is a great choice [1]."
+    assert answer.text == "PCCOE is a great choice [1]."
+    assert len(answer.sources) == 1
+    assert answer.sources[0].title == "PCCOE Admissions"
+    assert answer.evaluation.faithfulness == 0.9
+    assert answer.evaluation.context_precision == 0.9
+
+
+@pytest.mark.asyncio
+async def test_handle_streaming_zero_sources_short_circuits_like_handle():
+    search_provider = FakeSearchProvider({})
+    llm_provider = FakeLLMProvider(
+        structured_response=QueryPlanResponse(
+            intent="find something", complexity="simple", queries=["some obscure query"]
+        ),
+        generate_response="should never be used",
+    )
+    pipeline = build_pipeline(search_provider, llm_provider)
+
+    stream = await pipeline.handle_streaming("some obscure query")
+    received = [chunk async for chunk in stream]
+    answer = await stream.get_answer()
+
+    assert "".join(received) == answer.text
+    assert "couldn't find any information" in answer.text
+    assert answer.sources == ()
+    assert answer.evaluation is None
+
+
+@pytest.mark.asyncio
+async def test_handle_streaming_invalid_input_short_circuits_like_handle():
+    pipeline = build_pipeline(FakeSearchProvider({}), FakeLLMProvider())
+
+    stream = await pipeline.handle_streaming("   ")
+    received = [chunk async for chunk in stream]
+    answer = await stream.get_answer()
+
+    assert "".join(received) == answer.text
+    assert "between 1 and" in answer.text
+    assert answer.evaluation is None
+
+
+@pytest.mark.asyncio
+async def test_handle_streaming_evaluates_against_full_context_not_just_cited_sources():
+    sub_query = "best computer engineering colleges pune"
+    search_provider = FakeSearchProvider(
+        {
+            sub_query: [
+                SearchResult(
+                    url="https://example.com/pccoe",
+                    title="PCCOE Admissions",
+                    snippet="PCCOE, Pune offers a well-regarded Computer Engineering program.",
+                    source_query=sub_query,
+                    provider_score=0.9,
+                ),
+                SearchResult(
+                    url="https://example.com/coep",
+                    title="COEP",
+                    snippet="COEP is a top-ranked government engineering college in Pune.",
+                    source_query=sub_query,
+                    provider_score=0.8,
+                ),
+            ]
+        }
+    )
+    llm_provider = FakeLLMProvider(
+        structured_response=QueryPlanResponse(
+            intent="find CE colleges", complexity="simple", queries=[sub_query]
+        ),
+        generate_response="PCCOE is a great choice [1].",
+    )
+
+    received_contexts: list[str] = []
+
+    class RecordingEvaluator(Evaluator):
+        async def evaluate(self, question, answer, contexts):
+            received_contexts.extend(contexts)
+            return EvaluationResult(faithfulness=1.0, context_precision=1.0)
+
+    pipeline = build_pipeline(search_provider, llm_provider, evaluator=RecordingEvaluator())
+
+    stream = await pipeline.handle_streaming("best computer engineering colleges in Pune")
+    async for _ in stream:
+        pass
+    answer = await stream.get_answer()
+
+    assert len(answer.sources) == 1
+    assert len(received_contexts) == 2

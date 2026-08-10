@@ -9,7 +9,7 @@ TypeError, rather than failing later with an AttributeError deep
 inside the pipeline.
 """
 from abc import ABC, abstractmethod
-from typing import Any, TypeVar
+from typing import Any, AsyncIterator, TypeVar
 
 from src.domain.entities import EvaluationResult, SearchResult
 
@@ -27,11 +27,14 @@ class SearchProvider(ABC):
 
 
 class LLMProvider(ABC):
-    """One LLM backend (Groq). Two methods because the pipeline needs both
-    shapes of output: free-text (the final grounded answer) and structured
-    (the query planner's JSON plan). `schema` is typically a Pydantic model
-    class; T is left unbound here so this file has no dependency on
-    Pydantic - the binding happens wherever generate_structured is called.
+    """One LLM backend (Groq). Three methods because the pipeline needs
+    three shapes of output: free-text (the final grounded answer),
+    structured (the query planner's JSON plan), and free-text streamed
+    token-by-token (Phase 11's CLI, so tokens can print as they arrive
+    instead of waiting for the full completion). `schema` is typically a
+    Pydantic model class; T is left unbound here so this file has no
+    dependency on Pydantic - the binding happens wherever
+    generate_structured is called.
     """
 
     @abstractmethod
@@ -43,6 +46,11 @@ class LLMProvider(ABC):
     async def generate_structured(
         self, prompt: str, schema: type[T], *, system_prompt: str | None = None
     ) -> T: ...
+
+    @abstractmethod
+    def generate_stream(
+        self, prompt: str, *, system_prompt: str | None = None
+    ) -> AsyncIterator[str]: ...
 
 
 class Ranker(ABC):

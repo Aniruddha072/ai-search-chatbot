@@ -27,6 +27,10 @@ class FakeLLMProvider(LLMProvider):
             raise self._raise_exc
         return self._structured_result
 
+    async def generate_stream(self, prompt, *, system_prompt=None):
+        raise NotImplementedError("QueryPlanner should never call generate_stream")
+        yield  # pragma: no cover - makes this an async generator function
+
 
 def make_planner(llm_provider: LLMProvider, cache: Cache | None = None, timeout_seconds: float = 5.0) -> QueryPlanner:
     return QueryPlanner(
@@ -71,6 +75,10 @@ async def test_plan_falls_back_on_malformed_json():
         async def generate_structured(self, prompt, schema, *, system_prompt=None):
             return schema.model_validate_json("not valid json")
 
+        async def generate_stream(self, prompt, *, system_prompt=None):
+            raise NotImplementedError("QueryPlanner should never call generate_stream")
+            yield  # pragma: no cover - makes this an async generator function
+
     planner = make_planner(MalformedProvider())
 
     query = await planner.plan("what is X?")
@@ -89,6 +97,10 @@ async def test_plan_falls_back_when_schema_rejects_over_five_queries():
                 {"intent": "x", "complexity": "complex", "queries": ["a", "b", "c", "d", "e", "f"]}
             )
             return schema.model_validate_json(payload)
+
+        async def generate_stream(self, prompt, *, system_prompt=None):
+            raise NotImplementedError("QueryPlanner should never call generate_stream")
+            yield  # pragma: no cover - makes this an async generator function
 
     planner = make_planner(TooManyQueriesProvider())
 

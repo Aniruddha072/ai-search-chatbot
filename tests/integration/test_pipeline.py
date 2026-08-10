@@ -26,3 +26,19 @@ async def test_real_pipeline_produces_a_grounded_answer():
     assert len(answer.sources) >= 1
     for source in answer.sources:
         assert source.url.startswith("http")
+
+
+@pytest.mark.asyncio
+async def test_real_pipeline_streams_a_grounded_answer():
+    pipeline = build_chat_pipeline()
+
+    stream = await pipeline.handle_streaming(
+        "What are the best computer engineering colleges in Pune?"
+    )
+    chunks = [chunk async for chunk in stream]
+    answer = await stream.get_answer()
+
+    assert len(chunks) > 1
+    assert answer.text == "".join(chunks)
+    assert len(answer.sources) >= 1
+    assert answer.evaluation is not None

@@ -19,10 +19,19 @@ def make_sources(*titles: str) -> tuple[Source, ...]:
 
 
 class FakeLLMProvider(LLMProvider):
-    def __init__(self, response_text: str | None = None, raise_exc: Exception | None = None, delay: float = 0.0):
+    def __init__(
+        self,
+        response_text: str | None = None,
+        raise_exc: Exception | None = None,
+        delay: float = 0.0,
+        stream_chunks: list[str] | None = None,
+        stream_chunk_delay: float = 0.0,
+    ):
         self._response_text = response_text
         self._raise_exc = raise_exc
         self._delay = delay
+        self._stream_chunks = stream_chunks
+        self._stream_chunk_delay = stream_chunk_delay
         self.received_prompt: str | None = None
         self.received_system_prompt: str | None = None
 
@@ -37,6 +46,16 @@ class FakeLLMProvider(LLMProvider):
 
     async def generate_structured(self, prompt, schema, *, system_prompt=None):
         raise NotImplementedError("AnswerGenerator should never call generate_structured")
+
+    async def generate_stream(self, prompt, *, system_prompt=None):
+        self.received_prompt = prompt
+        self.received_system_prompt = system_prompt
+        for chunk in self._stream_chunks or []:
+            if self._stream_chunk_delay:
+                await asyncio.sleep(self._stream_chunk_delay)
+            yield chunk
+        if self._raise_exc:
+            raise self._raise_exc
 
 
 @pytest.mark.asyncio
@@ -116,3 +135,75 @@ async def test_timeout_propagates():
 
     with pytest.raises(asyncio.TimeoutError):
         await generator.generate(make_query(), make_sources("PCCOE"))
+
+
+@pytest.mark.asyncio
+async def test_streaming_yields_chunks_as_they_arrive():
+    provider = FakeLLMProvider(stream_chunks=["PCCOE ", "is great ", "[1]."])
+    generator = AnswerGenerator(provider, timeout_seconds=5.0)
+
+    stream = generator.generate_streaming(make_query(), make_sources("PCCOE"))
+    received = [chunk async for chunk in stream]
+
+    assert received == ["PCCOE ", "is great ", "[1]."]
+    assert "best CE colleges in Pune" in provider.received_prompt
+
+
+@pytest.mark.asyncio
+async def test_streaming_build_answer_parses_citations_after_full_consumption():
+    sources = make_sources("PCCOE", "COEP")
+    provider = FakeLLMProvider(stream_chunks=["PCCOE is great [1]. ", "COEP is also good [2]."])
+    generator = AnswerGenerator(provider, timeout_seconds=5.0)
+
+    stream = generator.generate_streaming(make_query(), sources)
+    async for _ in stream:
+        pass
+    answer = stream.build_answer()
+
+    assert answer.text == "PCCOE is great [1]. COEP is also good [2]."
+    assert [s.title for s in answer.sources] == ["PCCOE", "COEP"]
+
+
+@pytest.mark.asyncio
+async def test_streaming_and_non_streaming_agree_on_the_same_text():
+    sources = make_sources("PCCOE", "COEP")
+    text = "PCCOE is great [1]. COEP is also good [2]."
+
+    non_streaming = AnswerGenerator(FakeLLMProvider(response_text=text), timeout_seconds=5.0)
+    non_streamed_answer = await non_streaming.generate(make_query(), sources)
+
+    streaming = AnswerGenerator(FakeLLMProvider(stream_chunks=[text]), timeout_seconds=5.0)
+    stream = streaming.generate_streaming(make_query(), sources)
+    async for _ in stream:
+        pass
+    streamed_answer = stream.build_answer()
+
+    assert streamed_answer.text == non_streamed_answer.text
+    assert streamed_answer.sources == non_streamed_answer.sources
+
+
+@pytest.mark.asyncio
+async def test_streaming_chunk_timeout_propagates():
+    provider = FakeLLMProvider(stream_chunks=["slow chunk"], stream_chunk_delay=1.0)
+    generator = AnswerGenerator(provider, timeout_seconds=0.05)
+
+    stream = generator.generate_streaming(make_query(), make_sources("PCCOE"))
+    with pytest.raises(asyncio.TimeoutError):
+        async for _ in stream:
+            pass
+
+
+@pytest.mark.asyncio
+async def test_streaming_exception_after_some_chunks_propagates():
+    provider = FakeLLMProvider(
+        stream_chunks=["PCCOE is great [1]."], raise_exc=RuntimeError("boom")
+    )
+    generator = AnswerGenerator(provider, timeout_seconds=5.0)
+
+    stream = generator.generate_streaming(make_query(), make_sources("PCCOE"))
+    received = []
+    with pytest.raises(RuntimeError):
+        async for chunk in stream:
+            received.append(chunk)
+
+    assert received == ["PCCOE is great [1]."]

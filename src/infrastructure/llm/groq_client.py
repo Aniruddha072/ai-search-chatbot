@@ -11,8 +11,15 @@ the retry-worthy subset of groq.APIStatusError. Non-transient failures
 (bad request, auth, model not found) are not retried. Either way, every
 failure that survives is re-raised as LLMGenerationError, so callers
 never see a raw groq exception type.
+
+generate_stream()'s retry only wraps *acquiring* the stream (the
+chat.completions.create(..., stream=True) call itself) - once a chunk
+has been yielded to a caller that may already have printed it to a
+terminal, silently retrying and re-yielding would duplicate visible
+output. A failure mid-iteration propagates immediately as
+LLMGenerationError, not retried.
 """
-from typing import TypeVar
+from typing import AsyncIterator, TypeVar
 
 from groq import APIConnectionError, AsyncGroq, InternalServerError, RateLimitError
 from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt, wait_fixed
@@ -69,6 +76,27 @@ class GroqClient(LLMProvider):
             raise LLMGenerationError(f"Groq generate_structured() failed: {exc}") from exc
         content = response.choices[0].message.content
         return schema.model_validate_json(content)
+
+    async def generate_stream(
+        self, prompt: str, *, system_prompt: str | None = None
+    ) -> AsyncIterator[str]:
+        try:
+            stream = await self._retrying(
+                self._client.chat.completions.create,
+                model=self._capable_model,
+                messages=self._build_messages(prompt, system_prompt),
+                stream=True,
+            )
+        except Exception as exc:
+            raise LLMGenerationError(f"Groq generate_stream() failed: {exc}") from exc
+
+        try:
+            async for chunk in stream:
+                piece = chunk.choices[0].delta.content
+                if piece:
+                    yield piece
+        except Exception as exc:
+            raise LLMGenerationError(f"Groq generate_stream() failed mid-stream: {exc}") from exc
 
     @staticmethod
     def _build_messages(prompt: str, system_prompt: str | None) -> list[dict]:

@@ -52,3 +52,36 @@ async def test_real_answer_generator_produces_a_grounded_cited_answer():
     assert answer.text
     assert len(answer.sources) >= 1
     assert all(s.index in (1, 2) for s in answer.sources)
+
+
+@pytest.mark.asyncio
+async def test_real_answer_generator_streams_and_matches_build_answer():
+    load_dotenv()
+    llm = GroqClient(
+        api_key=os.environ["GROQ_API_KEY"],
+        fast_model="llama-3.1-8b-instant",
+        capable_model="llama-3.3-70b-versatile",
+    )
+    generator = AnswerGenerator(llm, timeout_seconds=15.0)
+    query = Query(
+        original_text="What are good computer engineering colleges in Pune?",
+        sub_queries=("computer engineering colleges Pune",),
+        intent="find colleges",
+        complexity="simple",
+    )
+    sources = (
+        Source(
+            index=1,
+            url="https://example.com/pccoe",
+            title="PCCOE Admissions",
+            content_used="PCCOE, Pune offers a well-regarded Computer Engineering program with modern labs.",
+        ),
+    )
+
+    stream = generator.generate_streaming(query, sources)
+    chunks = [chunk async for chunk in stream]
+    answer = stream.build_answer()
+
+    assert len(chunks) > 1  # a real streamed response arrives in more than one piece
+    assert answer.text == "".join(chunks)
+    assert len(answer.sources) >= 1
