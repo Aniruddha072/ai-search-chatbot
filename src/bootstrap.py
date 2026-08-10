@@ -33,7 +33,11 @@ def build_chat_pipeline() -> ChatPipeline:
     search_result_cache = InMemoryCache()
 
     search_orchestrator = SearchOrchestrator(
-        provider=TavilyProvider(api_key=settings.tavily_api_key),
+        provider=TavilyProvider(
+            api_key=settings.tavily_api_key,
+            max_retries=settings.max_retry_attempts,
+            retry_backoff_seconds=settings.retry_backoff_seconds,
+        ),
         timeout_seconds=settings.search_timeout_seconds,
         cache=search_result_cache,
         cache_ttl_seconds=settings.search_result_cache_ttl_seconds,
@@ -52,6 +56,8 @@ def build_chat_pipeline() -> ChatPipeline:
         api_key=settings.groq_api_key,
         fast_model=settings.groq_fast_model,
         capable_model=settings.groq_capable_model,
+        max_retries=settings.max_retry_attempts,
+        retry_backoff_seconds=settings.retry_backoff_seconds,
     )
 
     # RagasEvaluator gets its own instructor-wrapped Groq client rather than
@@ -79,4 +85,5 @@ def build_chat_pipeline() -> ChatPipeline:
         answer_generator=AnswerGenerator(groq_client, timeout_seconds=settings.llm_timeout_seconds),
         evaluation_service=evaluation_service,
         max_results_per_query=settings.max_search_results,
+        max_query_length=settings.max_query_length,
     )

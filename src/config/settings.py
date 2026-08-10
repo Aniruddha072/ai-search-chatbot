@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     query_plan_cache_ttl_seconds: float = Field(default=600.0, gt=0)
     search_result_cache_ttl_seconds: float = Field(default=3600.0, gt=0)
 
+    max_query_length: int = Field(default=500, gt=0)
+    max_retry_attempts: int = Field(default=3, gt=0)
+    retry_backoff_seconds: float = Field(default=0.5, gt=0)
+
 
 @lru_cache
 def get_settings() -> Settings:

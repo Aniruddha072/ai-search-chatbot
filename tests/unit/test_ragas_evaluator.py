@@ -1,5 +1,6 @@
 import pytest
 
+from src.domain.exceptions import EvaluationError
 from src.infrastructure.evaluation.ragas_evaluator import RagasEvaluator
 
 
@@ -51,3 +52,17 @@ async def test_evaluate_passes_question_answer_contexts_to_both_metrics():
             "response": "my answer",
             "retrieved_contexts": ["ctx"],
         }
+
+
+class _FailingMetric:
+    async def ascore(self, **kwargs):
+        raise RuntimeError("ragas metric exploded")
+
+
+@pytest.mark.asyncio
+async def test_evaluate_wraps_failures_as_evaluation_error():
+    evaluator = make_evaluator(faithfulness_value=0.9, context_precision_value=0.8)
+    evaluator._faithfulness = _FailingMetric()
+
+    with pytest.raises(EvaluationError):
+        await evaluator.evaluate(question="q", answer="a", contexts=["ctx"])

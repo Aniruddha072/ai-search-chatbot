@@ -1,6 +1,9 @@
+import httpx
 import pytest
+from groq import APIConnectionError, AuthenticationError, RateLimitError
 from pydantic import BaseModel
 
+from src.domain.exceptions import LLMGenerationError
 from src.infrastructure.llm.groq_client import GroqClient
 
 
@@ -44,11 +47,61 @@ class DummySchema(BaseModel):
     value: str
 
 
-def make_client(content: str) -> tuple[GroqClient, _FakeGroqSDKClient]:
-    client = GroqClient(api_key="test-key", fast_model="fast-model", capable_model="capable-model")
+def make_client(
+    content: str, max_retries: int = 3, retry_backoff_seconds: float = 0
+) -> tuple[GroqClient, _FakeGroqSDKClient]:
+    client = GroqClient(
+        api_key="test-key",
+        fast_model="fast-model",
+        capable_model="capable-model",
+        max_retries=max_retries,
+        retry_backoff_seconds=retry_backoff_seconds,
+    )
     fake = _FakeGroqSDKClient(content)
     client._client = fake
     return client, fake
+
+
+def _api_connection_error() -> APIConnectionError:
+    return APIConnectionError(request=httpx.Request("POST", "https://api.groq.com"))
+
+
+def _rate_limit_error() -> RateLimitError:
+    request = httpx.Request("POST", "https://api.groq.com")
+    response = httpx.Response(status_code=429, request=request)
+    return RateLimitError("rate limited", response=response, body=None)
+
+
+def _authentication_error() -> AuthenticationError:
+    request = httpx.Request("POST", "https://api.groq.com")
+    response = httpx.Response(status_code=401, request=request)
+    return AuthenticationError("bad key", response=response, body=None)
+
+
+class _FlakyThenOkCompletions:
+    """Fails with a retryable error `fail_times` times, then succeeds."""
+
+    def __init__(self, content: str, exc: Exception, fail_times: int) -> None:
+        self._content = content
+        self._exc = exc
+        self._fail_times = fail_times
+        self.call_count = 0
+
+    async def create(self, **kwargs) -> _FakeResponse:
+        self.call_count += 1
+        if self.call_count <= self._fail_times:
+            raise self._exc
+        return _FakeResponse(self._content)
+
+
+class _AlwaysFailsCompletions:
+    def __init__(self, exc: Exception) -> None:
+        self._exc = exc
+        self.call_count = 0
+
+    async def create(self, **kwargs) -> _FakeResponse:
+        self.call_count += 1
+        raise self._exc
 
 
 @pytest.mark.asyncio
@@ -99,3 +152,49 @@ async def test_no_system_message_when_not_provided():
 
     messages = fake.completions.received_kwargs["messages"]
     assert messages == [{"role": "user", "content": "prompt"}]
+
+
+@pytest.mark.asyncio
+async def test_generate_retries_transient_errors_and_eventually_succeeds():
+    client, fake = make_client("hello world")
+    fake.chat.completions = _FlakyThenOkCompletions(
+        "hello world", _api_connection_error(), fail_times=2
+    )
+
+    result = await client.generate("prompt")
+
+    assert result == "hello world"
+    assert fake.chat.completions.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_generate_raises_llm_generation_error_after_exhausting_retries():
+    client, fake = make_client("hello world", max_retries=2)
+    fake.chat.completions = _AlwaysFailsCompletions(_rate_limit_error())
+
+    with pytest.raises(LLMGenerationError):
+        await client.generate("prompt")
+
+    assert fake.chat.completions.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_generate_does_not_retry_non_transient_errors():
+    client, fake = make_client("hello world", max_retries=3)
+    fake.chat.completions = _AlwaysFailsCompletions(_authentication_error())
+
+    with pytest.raises(LLMGenerationError):
+        await client.generate("prompt")
+
+    assert fake.chat.completions.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_generate_structured_raises_llm_generation_error_on_transient_failure():
+    client, fake = make_client('{"value": "abc"}', max_retries=2)
+    fake.chat.completions = _AlwaysFailsCompletions(_api_connection_error())
+
+    with pytest.raises(LLMGenerationError):
+        await client.generate_structured("prompt", schema=DummySchema)
+
+    assert fake.chat.completions.call_count == 2

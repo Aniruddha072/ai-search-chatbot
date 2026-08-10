@@ -89,6 +89,7 @@ def build_pipeline(
         answer_generator=AnswerGenerator(llm_provider, timeout_seconds=5.0),
         evaluation_service=EvaluationService(evaluator or FakeEvaluator(), timeout_seconds=5.0),
         max_results_per_query=5,
+        max_query_length=500,
     )
 
 
@@ -127,13 +128,14 @@ async def test_full_pipeline_produces_a_grounded_cited_answer():
 
 
 @pytest.mark.asyncio
-async def test_no_search_results_still_produces_an_answer_with_no_sources():
+async def test_no_search_results_short_circuits_before_generation():
     sub_query = "some obscure query"
     search_provider = FakeSearchProvider({})  # nothing matches -> empty results
     llm_provider = FakeLLMProvider(
         structured_response=QueryPlanResponse(
             intent="find something", complexity="simple", queries=[sub_query]
         ),
+        # If AnswerGenerator were called it would return this - it must not be.
         generate_response="The sources do not contain enough information to answer.",
     )
     pipeline = build_pipeline(search_provider, llm_provider)
@@ -141,7 +143,8 @@ async def test_no_search_results_still_produces_an_answer_with_no_sources():
     answer = await pipeline.handle("some obscure query")
 
     assert answer.sources == ()
-    assert "do not contain enough information" in answer.text
+    assert "couldn't find any information" in answer.text
+    assert answer.evaluation is None
 
 
 @pytest.mark.asyncio
@@ -253,3 +256,73 @@ async def test_evaluation_uses_full_context_not_just_cited_sources():
     # Only one source was cited, but both were passed to evaluation.
     assert len(answer.sources) == 1
     assert len(received_contexts) == 2
+
+
+@pytest.mark.asyncio
+async def test_empty_query_is_rejected_before_query_planning():
+    class ExplodingLLMProvider(LLMProvider):
+        async def generate_structured(self, prompt, schema, *, system_prompt=None):
+            raise AssertionError("QueryPlanner should never be called for empty input")
+
+        async def generate(self, prompt, *, system_prompt=None):
+            raise AssertionError("AnswerGenerator should never be called for empty input")
+
+    pipeline = build_pipeline(FakeSearchProvider({}), ExplodingLLMProvider())
+
+    answer = await pipeline.handle("   ")
+
+    assert answer.sources == ()
+    assert answer.evaluation is None
+    assert "between 1 and" in answer.text
+
+
+@pytest.mark.asyncio
+async def test_overlong_query_is_rejected_before_query_planning():
+    class ExplodingLLMProvider(LLMProvider):
+        async def generate_structured(self, prompt, schema, *, system_prompt=None):
+            raise AssertionError("QueryPlanner should never be called for overlong input")
+
+        async def generate(self, prompt, *, system_prompt=None):
+            raise AssertionError("AnswerGenerator should never be called for overlong input")
+
+    pipeline = build_pipeline(FakeSearchProvider({}), ExplodingLLMProvider())
+
+    answer = await pipeline.handle("x" * 501)
+
+    assert answer.evaluation is None
+    assert "between 1 and" in answer.text
+
+
+@pytest.mark.asyncio
+async def test_answer_generation_failure_degrades_gracefully():
+    sub_query = "best computer engineering colleges pune"
+    search_provider = FakeSearchProvider(
+        {
+            sub_query: [
+                SearchResult(
+                    url="https://example.com/pccoe",
+                    title="PCCOE Admissions",
+                    snippet="PCCOE, Pune offers a well-regarded Computer Engineering program.",
+                    source_query=sub_query,
+                    provider_score=0.9,
+                )
+            ]
+        }
+    )
+
+    class FailingLLMProvider(LLMProvider):
+        async def generate_structured(self, prompt, schema, *, system_prompt=None):
+            return QueryPlanResponse(
+                intent="find CE colleges", complexity="simple", queries=[sub_query]
+            )
+
+        async def generate(self, prompt, *, system_prompt=None):
+            raise RuntimeError("groq exploded after exhausting retries")
+
+    pipeline = build_pipeline(search_provider, FailingLLMProvider())
+
+    answer = await pipeline.handle("best computer engineering colleges in Pune")
+
+    assert answer.sources == ()
+    assert answer.evaluation is None
+    assert "having trouble generating an answer" in answer.text

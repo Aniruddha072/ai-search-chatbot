@@ -10,10 +10,14 @@ AnswerRelevancy is deliberately not implemented: it requires an
 embeddings model, and Groq doesn't serve one (verified: a real
 embeddings call 404s). See docs/decisions.md, 8.x.
 
-No error handling, no timeout - matches TavilyProvider/ContentExtractor's
-role as a plain adapter. EvaluationService (application layer) is where
-resilience lives, the same relationship Decision 2.2 established between
-SearchOrchestrator and SearchProvider.
+No retry - RAGAS failures aren't the transient-network kind tenacity is
+for, and EvaluationService already treats every failure as non-fatal.
+Failures are wrapped as EvaluationError so callers never see a raw
+ragas/instructor exception type - the same anti-corruption-layer
+treatment TavilyProvider/GroqClient give their own failures. Timeout
+still lives in EvaluationService (application layer), the same
+relationship Decision 2.2 established between SearchOrchestrator and
+SearchProvider.
 """
 import asyncio
 
@@ -22,6 +26,7 @@ from ragas.llms import InstructorLLM
 from ragas.metrics.collections import ContextPrecisionWithoutReference, Faithfulness
 
 from src.domain.entities import EvaluationResult
+from src.domain.exceptions import EvaluationError
 from src.domain.interfaces import Evaluator
 
 
@@ -37,14 +42,18 @@ class RagasEvaluator(Evaluator):
     async def evaluate(
         self, question: str, answer: str, contexts: list[str]
     ) -> EvaluationResult:
-        faithfulness_result, context_precision_result = await asyncio.gather(
-            self._faithfulness.ascore(
-                user_input=question, response=answer, retrieved_contexts=contexts
-            ),
-            self._context_precision.ascore(
-                user_input=question, response=answer, retrieved_contexts=contexts
-            ),
-        )
+        try:
+            faithfulness_result, context_precision_result = await asyncio.gather(
+                self._faithfulness.ascore(
+                    user_input=question, response=answer, retrieved_contexts=contexts
+                ),
+                self._context_precision.ascore(
+                    user_input=question, response=answer, retrieved_contexts=contexts
+                ),
+            )
+        except Exception as exc:
+            raise EvaluationError(f"RAGAS evaluation failed: {exc}") from exc
+
         return EvaluationResult(
             faithfulness=faithfulness_result.value,
             context_precision=context_precision_result.value,
