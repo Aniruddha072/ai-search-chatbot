@@ -39,7 +39,7 @@ Full pipeline diagram and component responsibilities: [`docs/architecture.md`](d
 - [x] Phase 7 — Pipeline wiring
 - [x] Phase 8 — RAGAS evaluation
 - [x] Phase 9 — Caching
-- [ ] Phase 10 — Resilience hardening
+- [x] Phase 10 — Resilience hardening
 - [ ] Phase 11 — CLI presentation
 - [ ] Phase 12 — Testing
 - [ ] Phase 13 — Observability & polish
@@ -52,23 +52,24 @@ src/
 ├── bootstrap.py           # composition root: Settings -> real instances -> one ChatPipeline
 ├── domain/
 │   ├── entities.py       # Query, SearchResult, Source, Answer, EvaluationResult
-│   └── interfaces.py     # SearchProvider, LLMProvider, Ranker, Evaluator, ContentExtractor, Cache
+│   ├── interfaces.py     # SearchProvider, LLMProvider, Ranker, Evaluator, ContentExtractor, Cache
+│   └── exceptions.py     # PipelineError + SearchProviderError, LLMGenerationError, EvaluationError
 ├── application/
 │   ├── search_orchestrator.py  # concurrent fan-out over a SearchProvider, per-query timeout
 │   ├── deduplicator.py         # URL normalization + near-duplicate content passes
 │   ├── ranker.py               # HeuristicRanker: weighted provider/keyword/recency scoring
 │   ├── context_builder.py      # top-K selection, thin-snippet full-fetch, token-budget enforcement
 │   ├── query_planner.py        # Groq structured-output call -> Query, with single-query fallback
-│   ├── answer_generator.py     # Groq generate() -> cited Answer; failures propagate, no fallback
-│   ├── pipeline.py             # ChatPipeline: chains query planning through evaluation
+│   ├── answer_generator.py     # Groq generate() -> cited Answer; failures propagate to ChatPipeline
+│   ├── pipeline.py             # ChatPipeline: chains query planning through evaluation, always returns Answer
 │   └── evaluation_service.py   # non-blocking Evaluator wrapper: timeout + catch, always returns EvaluationResult
 ├── infrastructure/
 │   ├── search/
-│   │   └── tavily_provider.py  # implements SearchProvider via Tavily's async client
+│   │   └── tavily_provider.py  # implements SearchProvider via Tavily's async client; retries + SearchProviderError + URL filter
 │   ├── llm/
-│   │   └── groq_client.py      # implements LLMProvider (generate + generate_structured)
+│   │   └── groq_client.py      # implements LLMProvider (generate + generate_structured); retries + LLMGenerationError
 │   ├── evaluation/
-│   │   └── ragas_evaluator.py  # implements Evaluator via RAGAS + instructor + Groq
+│   │   └── ragas_evaluator.py  # implements Evaluator via RAGAS + instructor + Groq; wraps failures as EvaluationError
 │   ├── cache/
 │   │   └── memory_cache.py     # InMemoryCache: dict + lazy TTL expiry, implements Cache
 │   └── content/

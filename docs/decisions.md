@@ -607,6 +607,136 @@ Reason:
   point the `Cache` port already makes swapping in Redis a config
   change, not a rewrite.
 
+### Decision 10.1
+
+Date: 2026-08-10
+
+Implemented:
+A new `src/domain/exceptions.py` defines `PipelineError` and three
+subtypes (`SearchProviderError`, `LLMGenerationError`,
+`EvaluationError`), one per infrastructure port. Every adapter
+(`TavilyProvider`, `GroqClient`, `RagasEvaluator`) now catches the raw
+SDK-specific exception and re-raises the matching typed one, instead of
+letting `tavily`/`groq`/`ragas` exception types leak past the adapter
+boundary.
+
+Reason:
+- Same anti-corruption-layer reasoning already applied to *data*
+  (Phase 2's raw-Tavily-dict -> `SearchResult` translation), now applied
+  to *errors*. Callers upstream of the adapters never need to know or
+  import a third-party exception type.
+- Placed in `domain/`, not `infrastructure/`, alongside the ports they
+  correspond to - framework-agnostic, zero external dependencies,
+  consistent with everything else that lives there.
+
+### Decision 10.2
+
+Date: 2026-08-10
+
+Implemented:
+Retry-worthy exception sets were verified against real SDK source
+before being wired into `tenacity`, not guessed: Groq's
+`APIConnectionError`, `RateLimitError`, `InternalServerError` retry;
+`AuthenticationError`/`BadRequestError`/etc. do not. Tavily's own
+`TimeoutError` plus `httpx.TransportError` retry (Tavily's client uses
+`httpx` internally); `BadRequestError`/`InvalidAPIKeyError`/
+`UsageLimitExceededError` do not.
+
+Reason:
+- Retrying a non-transient failure (bad API key, malformed request)
+  wastes the entire attempt budget on something that will never
+  succeed, and delays the user-visible failure for no benefit.
+  `tenacity`'s `retry_if_exception_type` makes the selective set
+  explicit and testable rather than an implicit "retry everything."
+
+### Decision 10.3
+
+Date: 2026-08-10
+
+Implemented:
+`max_retry_attempts` and `retry_backoff_seconds` are `Settings` fields
+(env-configurable), not constructor-level constants baked into
+`TavilyProvider`/`GroqClient`.
+
+Reason:
+- Same category as the existing timeout settings (`search_timeout_seconds`,
+  `llm_timeout_seconds`, etc.) - they affect external-call cost and
+  latency and are worth tuning per-environment without a code change.
+  Contrast with Phase 3's ranking-heuristic constants, which stayed as
+  plain constructor defaults because they're internal tuning, not
+  external-call-affecting.
+
+### Decision 10.4
+
+Date: 2026-08-10
+
+Implemented:
+`ChatPipeline.handle()` always returns an `Answer`, and never raises -
+three new branches (invalid input, zero sources after search, answer
+generation failure) each return a synthetic `Answer` with
+`evaluation=None` instead of propagating an exception to the caller.
+
+Reason:
+- Consistent with the self-contained-failure-handling pattern
+  `QueryPlanner` (Phase 5) and `EvaluationService` (Phase 8) already
+  established - a caller of `ChatPipeline` should never need a
+  try/except around `handle()`. `evaluation is None` is reused
+  (Phase 8's field, no new field added) to structurally distinguish a
+  synthetic/degraded message from a real generated-and-evaluated
+  answer, since only a successfully generated `Answer` ever reaches
+  `EvaluationService`.
+
+### Decision 10.5
+
+Date: 2026-08-10
+
+Implemented:
+Existing broad `except Exception` catches in `QueryPlanner`,
+`EvaluationService`, and `SearchOrchestrator` were left broad, not
+narrowed to `except PipelineError`. The new typed exceptions add value
+through precise retry targeting and clearer logs/messages, not through
+narrower catch clauses.
+
+Reason:
+- Narrowing those catches to `PipelineError` would let a genuinely
+  unexpected bug (a real programming error, not a provider failure)
+  propagate uncaught from what's meant to be a defense-in-depth
+  boundary. Broad catches there were already a deliberate choice, not
+  an oversight to "fix" this phase.
+
+### Decision 10.6
+
+Date: 2026-08-10
+
+Implemented:
+`RagasEvaluator` wraps failures as `EvaluationError` but does not retry
+them - no `tenacity` wiring, unlike `TavilyProvider`/`GroqClient`.
+
+Reason:
+- `EvaluationService` (Phase 8, Decision 1.6) already treats every
+  evaluation failure as non-fatal and non-blocking with its own
+  timeout - retrying inside the adapter would just delay a result the
+  caller is already prepared to receive as "null score," for no
+  correctness benefit.
+
+### Decision 10.7
+
+Date: 2026-08-10
+
+Implemented:
+The Phase 9-deferred Tavily relative-URL finding (`url='/goto?url=...'`
+instead of an absolute URL) is fixed inside `TavilyProvider.search()` -
+results whose `url` doesn't start with `http://`/`https://` are
+dropped before the method returns.
+
+Reason:
+- `TavilyProvider` is already the one file that owns "translate
+  Tavily's raw response shape into something the rest of the pipeline
+  can trust" (Phase 2). A relative/malformed URL is exactly that kind
+  of raw-shape problem, not a resilience concern for `ChatPipeline` to
+  handle. Honors the explicit plan recorded in Phase 9's build log to
+  address this in Phase 10.
+
 ---
 
 ## 1. Key design decisions
@@ -716,15 +846,16 @@ Per-call timeouts wrap all four points now (search, content-fetch, LLM calls, an
 
 ## 6. Error handling strategy
 
-- **Retry with backoff** (via `tenacity`) on transient failures from Tavily and Groq — network errors, 429/5xx — with a small max-attempt count (2–3) so retries don't themselves become the latency problem.
+- **Retry with backoff** (via `tenacity`) on transient failures from Tavily and Groq — network errors, 429/5xx — with a small, configurable max-attempt count (default 3, `max_retry_attempts`) so retries don't themselves become the latency problem. ✅ *(Phase 10 — Decision 10.2/10.3, exact retry-worthy exception sets verified against real SDK source, not guessed)*
 - **Per-stage timeout budgets** ✅ — search, content-fetch, LLM calls, and evaluation each get their own timeout; a stage that exceeds it fails independently rather than hanging the turn.
 - **Graceful degradation ladder**, not all-or-nothing failure:
   - Some sub-queries fail → proceed with whatever results returned (as long as ≥1 succeeded). ✅ *(Phase 2)*
-  - All search fails → tell the user search is unavailable rather than silently answering ungrounded (never let Groq quietly answer from parametric memory and present it as sourced). *`ChatPipeline` currently just returns a no-sources cite-or-refuse answer instead - reasonable, but the explicit user-facing message is still Phase 10.*
+  - Empty/absurdly long input → rejected with a clear message before `QueryPlanner` is even called. ✅ *(Phase 10)*
+  - Zero sources after search → skip `AnswerGenerator` entirely and return a clear "couldn't find information" message rather than asking Groq to generate from nothing. ✅ *(Phase 10)*
   - RAGAS fails or times out → return the answer with `evaluation: null` + a logged warning, never block the answer on it. ✅ *(Phase 8, `EvaluationService`)*
-  - Groq generation fails after retries → surface a clear "couldn't generate an answer, please retry" rather than a stack trace.
-- **Typed exceptions per layer** (`SearchProviderError`, `LLMGenerationError`, `EvaluationError`) caught at the `ChatPipeline` boundary, logged with a per-turn correlation ID, translated into a single well-shaped error response for the presentation layer.
-- **Input validation at the boundary** — empty/absurdly long user input rejected before it reaches the planner, not after burning an LLM call.
+  - Groq generation fails after retries → `ChatPipeline` catches the failure and returns a fixed "having trouble generating an answer" message instead of propagating. ✅ *(Phase 10)*
+- **Typed exceptions per layer** (`SearchProviderError`, `LLMGenerationError`, `EvaluationError`) ✅ — raised by the adapters that own each port (`TavilyProvider`, `GroqClient`, `RagasEvaluator`), *not* narrowly caught at one central `ChatPipeline` boundary: existing broad `except Exception` catches in `QueryPlanner`/`SearchOrchestrator`/`EvaluationService` stay broad by design (Decision 10.5), and `ChatPipeline` only adds a new catch around answer generation specifically, since that's the one failure with no existing self-contained handler. *(Phase 10)*
+- **Input validation at the boundary** ✅ — empty/absurdly long user input rejected in `ChatPipeline.handle()` before it reaches the planner, not after burning an LLM call. *(Phase 10, `max_query_length`)*
 
 ## 7. Caching opportunities ✅ *Query plan and search result caches implemented in Phase 9, exactly as designed below (search result cache key extended to include `max_results` - Decision 9.4). Final answer cache remains future - it was always framed as optional here.*
 

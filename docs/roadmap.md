@@ -133,11 +133,12 @@ Each box is independently completable and independently testable.
 - [x] Unit tests: cache hit skips the underlying call (assert mock not called twice)
 
 ### Phase 10 — Resilience hardening
-- [ ] Add `tenacity` retry decorators to Tavily and Groq client calls
-- [ ] Define typed exceptions: `SearchProviderError`, `LLMGenerationError`, `EvaluationError`
-- [ ] Catch and translate exceptions at `ChatPipeline` boundary into a single response shape
-- [ ] Implement the degradation ladder from [decisions.md, Error Handling Strategy](decisions.md#6-error-handling-strategy) (all-search-failed path, generation-failed path)
-- [ ] Input validation at pipeline entry (empty/oversized query rejection)
+- [x] Add `tenacity` retry (`AsyncRetrying`) to Tavily and Groq client calls, targeting verified retry-worthy exception sets only
+- [x] Define typed exceptions: `SearchProviderError`, `LLMGenerationError`, `EvaluationError`
+- [x] Each adapter (`TavilyProvider`, `GroqClient`, `RagasEvaluator`) wraps its own failures into the matching typed exception
+- [x] Implement the degradation ladder from [decisions.md, Error Handling Strategy](decisions.md#6-error-handling-strategy) (invalid-input, zero-sources, generation-failed paths) — `ChatPipeline.handle()` always returns an `Answer`, never raises
+- [x] Input validation at pipeline entry (empty/oversized query rejection, `max_query_length`)
+- [x] Fold the Phase 9-deferred Tavily relative-URL finding into `TavilyProvider.search()` (drop non-absolute URLs)
 
 ### Phase 11 — CLI presentation
 - [ ] `presentation/cli.py`: interactive loop reading stdin, calling `ChatPipeline`
