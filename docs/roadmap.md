@@ -147,9 +147,9 @@ Each box is independently completable and independently testable.
 - [x] Handle Ctrl-C / empty input gracefully
 
 ### Phase 12 — Testing
-- [ ] Unit test coverage for every `application/` module (providers/LLM mocked)
-- [ ] Integration test suite behind `RUN_INTEGRATION_TESTS=1` env flag
-- [ ] At least one full end-to-end integration test with real Tavily + Groq
+- [x] Unit test coverage for every `application/` module (providers/LLM mocked)
+- [x] Integration test suite behind `RUN_INTEGRATION_TESTS=1` env flag
+- [x] At least one full end-to-end integration test with real Tavily + Groq
 
 ### Phase 13 — Observability & polish
 - [ ] Per-stage timing captured and logged per turn (planning/search/context/generation/eval durations)

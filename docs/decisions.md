@@ -880,6 +880,47 @@ Reason:
 
 ---
 
+### Decision 12.1
+
+Date: 2026-08-11
+
+Implemented:
+`pytest-cov` added as a real dev dependency (`pyproject.toml`), and used
+to audit actual statement coverage before deciding Phase 12's scope,
+rather than assuming "a test file exists per module" already meant the
+module was covered.
+
+Reason:
+- The audit found every `domain/`, `application/`, and `infrastructure/`
+  module already at 100% coverage incidentally, but surfaced two real,
+  previously-untested branches in `ranker.py` (the empty-query-terms
+  divide-by-zero guard, and the future-published-date branch) and a
+  meaningful, closeable gap in `cli.py` beyond its accepted
+  interactive-only surface (`_print_sources`'s non-empty/empty paths,
+  `_handle_turn`'s happy path and its mid-stream-exception path, and
+  `_read_line` itself via a monkeypatched `input`) - none of these
+  needed real stdin/process interaction to test, contradicting
+  `test_cli.py`'s prior docstring claim that none of `cli.py` was
+  unit-testable. Coverage measurement turned "which tests should we
+  add" from a guess into a checklist. `main()`'s own loop and the
+  `if __name__ == "__main__":` guard remain intentionally
+  manual-smoke-test-only - they need real stdin/process wiring the way
+  `run()`'s Ctrl-C path already did (Decision 11.6).
+- Also used to re-verify the gated integration suite live
+  (`RUN_INTEGRATION_TESTS=1`, 7/7 passed), including a real
+  `test_real_ragas_evaluator_scores_a_grounded_answer` success (valid
+  Faithfulness/ContextPrecision scores, `error is None`, ~14.5s
+  runtime) - resolving the live-RAGAS-verification item deferred
+  earlier this session. That ~14.5s runtime, close to
+  `evaluation_timeout_seconds`'s 15s budget even with zero rate-limit
+  retries, is itself the explanation for why this morning's live CLI
+  attempts timed out: RAGAS evaluation is inherently near-budget, so
+  any 429 backoff on top reliably exceeds it. Not a code bug - an
+  external rate-limit/timeout-margin reality, consistent with the
+  earlier decision not to touch the evaluation implementation.
+
+---
+
 ## 1. Key design decisions
 
 **1.1 One combined Groq call for intent + query generation, not two.**

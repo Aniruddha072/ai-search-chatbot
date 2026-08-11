@@ -23,7 +23,7 @@ Clean architecture, inner layers depending on nothing outward:
 - **`src/application/`** — orchestration logic that depends only on the interfaces above. `SearchOrchestrator`, `Deduplicator`, `HeuristicRanker`, `ContextBuilder`, `QueryPlanner`, `AnswerGenerator`, `ChatPipeline`, `EvaluationService` implemented; the rest is not yet.
 - **`src/infrastructure/`** — concrete adapters (Tavily, Groq, RAGAS, cache) implementing those interfaces. `TavilyProvider`, `TrafilaturaContentExtractor`, `GroqClient`, `RagasEvaluator`, `InMemoryCache` implemented; the rest is not yet.
 - **`src/bootstrap.py`** — composition root wiring real Settings-backed instances into one `ChatPipeline`. Implemented.
-- **`src/presentation/`** — CLI entry point. Not yet implemented.
+- **`src/presentation/`** — CLI entry point. Implemented.
 
 Full pipeline diagram and component responsibilities: [`docs/architecture.md`](docs/architecture.md).
 
@@ -41,7 +41,7 @@ Full pipeline diagram and component responsibilities: [`docs/architecture.md`](d
 - [x] Phase 9 — Caching
 - [x] Phase 10 — Resilience hardening
 - [x] Phase 11 — CLI presentation
-- [ ] Phase 12 — Testing
+- [x] Phase 12 — Testing
 - [ ] Phase 13 — Observability & polish
 - [ ] Phase 14 — Optional: FastAPI layer
 
@@ -142,3 +142,14 @@ python -m src.presentation.cli
 Interactive terminal chat: ask a question, watch the answer stream in
 token-by-token, then see its sources and RAGAS scores. Ctrl-C or Ctrl-D
 (EOF) exits cleanly.
+
+## Testing
+
+```bash
+python -m pytest tests/unit                                    # unit tests (mocked providers)
+python -m pytest tests/unit --cov=src --cov-report=term-missing # + coverage report
+RUN_INTEGRATION_TESTS=1 python -m pytest tests/integration/      # real Tavily/Groq/RAGAS calls
+```
+
+Unit tests never touch the network. Integration tests are skipped unless
+`RUN_INTEGRATION_TESTS=1` is set, since they spend real Tavily/Groq quota.
