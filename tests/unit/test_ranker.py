@@ -93,3 +93,23 @@ def test_unparseable_published_date_falls_back_to_neutral_without_crashing():
     ranked = HeuristicRanker().rank([result], original_query="q")
 
     assert ranked == [result]
+
+
+def test_query_with_no_alphanumeric_tokens_does_not_divide_by_zero():
+    result = make_result(title="a", snippet="b", provider_score=0.5)
+
+    ranked = HeuristicRanker().rank([result], original_query="???")
+
+    assert ranked == [result]
+
+
+def test_future_published_date_ranks_above_an_older_result():
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    two_years_ago = (date.today() - timedelta(days=730)).isoformat()
+
+    future = make_result(title="a", snippet="b", provider_score=0.5, published_date=tomorrow)
+    old = make_result(title="a", snippet="b", provider_score=0.5, published_date=two_years_ago)
+
+    ranked = HeuristicRanker().rank([old, future], original_query="a b")
+
+    assert ranked[0] is future
