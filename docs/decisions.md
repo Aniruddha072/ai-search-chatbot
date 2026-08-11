@@ -1011,6 +1011,44 @@ Reason:
 
 ---
 
+### Decision 13.3
+
+Date: 2026-08-11
+
+Implemented:
+`Settings.log_level`'s default changed from `"INFO"` to `"CRITICAL"`
+(`settings.py`, `.env.example`).
+
+Reason:
+- Decision 13.2 made logs and answer text *separable* streams, but did
+  nothing about the terminal a real user actually sees by default -
+  stdout and stderr both still print to the same window unless
+  explicitly redirected, so the CLI's default experience was unchanged:
+  every HTTP request log, the new turn-timing summary, and internal
+  warning/error messages still appeared mixed into the conversation.
+  Live dogfooding surfaced this directly: "I want it to look like a
+  genuine chatbot that answers to my questions" - not a dev console.
+- Audited every first-party log call before picking the new default:
+  every `logger.info`/`logger.warning` in the codebase covers a
+  condition the CLI *already* renders cleanly to the user through its
+  own output (`(evaluation unavailable: ...)`, `[response interrupted
+  by an error]`, the degraded-answer text itself) - the raw log line is
+  pure duplication for an end user, never new information. The one
+  `ERROR`-level line ever observed came from a third-party library
+  (`instructor`'s own retry-exhaustion log), not this codebase. No
+  `logger.critical()` call exists anywhere, in this project or its
+  dependencies as observed - so `CRITICAL` is, in practice, silent
+  under every condition tested, including a real live failure (a
+  generation call failing mid-turn from Groq's daily quota still
+  cooling down) - verified live: the terminal showed only the CLI's own
+  `[response interrupted by an error]` message, no log line at all.
+- Fully reversible per-run, not a capability removed: `LOG_LEVEL=INFO`
+  in `.env` restores every log Phase 13 added (turn timings, HTTP
+  request logs) for anyone debugging - the default just stops assuming
+  a developer is always the one watching the terminal.
+
+---
+
 ## 1. Key design decisions
 
 **1.1 One combined Groq call for intent + query generation, not two.**

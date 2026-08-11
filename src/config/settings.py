@@ -20,7 +20,12 @@ class Settings(BaseSettings):
     tavily_api_key: str = Field(..., min_length=1)
     groq_api_key: str = Field(..., min_length=1)
 
-    log_level: str = Field(default="INFO")
+    # CRITICAL, not INFO: the CLI is a chatbot, not a dev console - nothing
+    # in this codebase or its dependencies logs at CRITICAL under any
+    # condition seen so far, so the terminal stays silent by default (see
+    # Decision 13.3). Set LOG_LEVEL=INFO in .env to see per-stage turn
+    # timings and HTTP request logs on stderr for debugging.
+    log_level: str = Field(default="CRITICAL")
     environment: str = Field(default="development")
 
     search_timeout_seconds: float = Field(default=10.0, gt=0)

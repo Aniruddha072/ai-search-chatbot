@@ -141,13 +141,14 @@ python -m src.presentation.cli
 
 Interactive terminal chat: ask a question, watch the answer stream in
 token-by-token, then see its sources and RAGAS scores. Ctrl-C or Ctrl-D
-(EOF) exits cleanly.
+(EOF) exits cleanly. By default the terminal shows only the conversation -
+no dev logs, no HTTP request noise.
 
-Structured logs (per-turn correlation IDs, and one `turn timings:` summary
-line per turn breaking down planning/search/context/generation/eval
-durations) go to stderr, kept separate from the streamed answer text on
-stdout. Redirect them independently if useful:
-`python -m src.presentation.cli 2>chat.log`.
+For debugging, set `LOG_LEVEL=INFO` in `.env` to restore structured logs
+(per-turn correlation IDs, and one `turn timings:` summary line per turn
+breaking down planning/search/context/generation/eval durations). They go
+to stderr, kept separate from the streamed answer text on stdout, so you
+can redirect just the logs: `python -m src.presentation.cli 2>chat.log`.
 
 ## Testing
 

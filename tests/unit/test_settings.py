@@ -11,7 +11,7 @@ def test_settings_loads_with_valid_keys(monkeypatch):
 
     assert settings.tavily_api_key == "tavily-test-key"
     assert settings.groq_api_key == "groq-test-key"
-    assert settings.log_level == "INFO"
+    assert settings.log_level == "CRITICAL"
     assert settings.environment == "development"
 
 
