@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     groq_capable_model: str = Field(default="llama-3.3-70b-versatile", min_length=1)
     llm_timeout_seconds: float = Field(default=10.0, gt=0)
 
-    evaluation_timeout_seconds: float = Field(default=15.0, gt=0)
+    evaluation_timeout_seconds: float = Field(default=30.0, gt=0)
 
     query_plan_cache_ttl_seconds: float = Field(default=600.0, gt=0)
     search_result_cache_ttl_seconds: float = Field(default=3600.0, gt=0)

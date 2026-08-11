@@ -921,6 +921,32 @@ Reason:
 
 ---
 
+### Decision 12.2
+
+Date: 2026-08-11
+
+Implemented:
+`evaluation_timeout_seconds` raised from 15.0 to 30.0 (`settings.py`,
+`.env.example`). Nothing else about the evaluation architecture changed -
+same Groq/RAGAS wiring, same unwrapped `RagasEvaluator` client
+(Decision 8.5), no provider switch.
+
+Reason:
+- Decision 12.1's real integration run measured a *successful* RAGAS
+  evaluation at ~14.5s with zero rate-limit retries - the old 15s
+  budget was too tight for the happy path alone, before any 429 backoff
+  gets added on top. A model/provider swap was considered and rejected:
+  probed real rate-limit headers for both Groq models and found
+  `llama-3.1-8b-instant` (6,000 TPM) has *less* per-minute headroom than
+  the `llama-3.3-70b-versatile` model `RagasEvaluator` already uses
+  (12,000 TPM) - switching would have made the timeout problem worse,
+  not better. Widening the timeout is a one-line config change that
+  fixes the actual measured margin problem without adding a new
+  provider or redesigning the evaluator just to work around a free-tier
+  limit.
+
+---
+
 ## 1. Key design decisions
 
 **1.1 One combined Groq call for intent + query generation, not two.**
