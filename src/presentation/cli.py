@@ -47,9 +47,12 @@ def _print_evaluation(answer: Answer) -> None:
         return
     # `is not None`, not a truthy check - an empty-but-present error string
     # is still a real failure and must not be treated the same as "no
-    # error occurred".
+    # error occurred". The real error text (evaluation.error) is never
+    # shown here - it's plumbed into EvaluationService's own log line
+    # instead (visible with LOG_LEVEL=INFO) - a non-technical user reading
+    # the chat shouldn't see a raw provider error string.
     if evaluation.error is not None:
-        print(f"\n(evaluation unavailable: {evaluation.error})")
+        print("\n(scores unavailable for this answer)")
         return
     scores = []
     if evaluation.faithfulness is not None:
@@ -69,7 +72,7 @@ async def _handle_turn(pipeline: ChatPipeline, user_query: str) -> None:
             print(chunk, end="", flush=True)
     except Exception as exc:
         logger.warning("streaming turn failed: %s", exc)
-        print("\n[response interrupted by an error]")
+        print("\n[I ran into a problem while answering. Please try again later.]")
         return
 
     print()

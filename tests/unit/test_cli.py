@@ -53,7 +53,7 @@ class _FakePipeline:
         return self._stream
 
 
-def test_blank_error_string_still_prints_evaluation_unavailable(capsys):
+def test_blank_error_string_still_prints_scores_unavailable(capsys):
     """A regression guard for the real bug: EvaluationResult(error="")
     is falsy, so a naive `if evaluation.error:` check treats a genuine
     (if uninformative) failure as if no error occurred at all, and
@@ -64,16 +64,22 @@ def test_blank_error_string_still_prints_evaluation_unavailable(capsys):
     _print_evaluation(answer)
 
     captured = capsys.readouterr()
-    assert "evaluation unavailable" in captured.out
+    assert "scores unavailable" in captured.out
 
 
-def test_named_error_prints_the_exception_name(capsys):
+def test_named_error_prints_generic_message_not_the_raw_error_text(capsys):
+    """The real error text must never reach the user - a non-technical
+    user reading the chat shouldn't see a raw exception name or a
+    provider's JSON error body. It stays in EvaluationResult.error /
+    the logs, not the printed line.
+    """
     answer = make_answer(EvaluationResult(error="TimeoutError"))
 
     _print_evaluation(answer)
 
     captured = capsys.readouterr()
-    assert "evaluation unavailable: TimeoutError" in captured.out
+    assert "scores unavailable" in captured.out
+    assert "TimeoutError" not in captured.out
 
 
 def test_successful_evaluation_prints_scores_not_unavailable(capsys):
@@ -82,7 +88,7 @@ def test_successful_evaluation_prints_scores_not_unavailable(capsys):
     _print_evaluation(answer)
 
     captured = capsys.readouterr()
-    assert "evaluation unavailable" not in captured.out
+    assert "unavailable" not in captured.out
     assert "faithfulness=0.90" in captured.out
     assert "context_precision=0.80" in captured.out
 
@@ -100,7 +106,8 @@ def test_no_evaluation_prints_nothing(capsys):
 async def test_evaluation_service_blank_exception_flows_through_to_cli_output(capsys):
     """End-to-end regression for the exact real-world chain: a blank-
     message exception -> EvaluationService's fallback -> _print_evaluation
-    correctly surfacing it, instead of the original silent-swallow bug.
+    correctly surfacing it (as a generic message, not the raw type name),
+    instead of the original silent-swallow bug.
     """
     from src.application.evaluation_service import EvaluationService
     from src.domain.interfaces import Evaluator
@@ -111,12 +118,14 @@ async def test_evaluation_service_blank_exception_flows_through_to_cli_output(ca
 
     service = EvaluationService(BlankFailingEvaluator(), timeout_seconds=5.0)
     evaluation = await service.evaluate("q", "a", ["ctx"])
+    assert evaluation.error == "RuntimeError"  # captured internally...
     answer = make_answer(evaluation)
 
     _print_evaluation(answer)
 
     captured = capsys.readouterr()
-    assert "evaluation unavailable: RuntimeError" in captured.out
+    assert "scores unavailable" in captured.out
+    assert "RuntimeError" not in captured.out  # ...but never shown to the user
 
 
 def test_run_exits_cleanly_on_keyboard_interrupt(monkeypatch, capsys):
@@ -179,4 +188,4 @@ async def test_handle_turn_prints_interruption_message_on_mid_stream_failure(cap
 
     captured = capsys.readouterr()
     assert "partial " in captured.out
-    assert "[response interrupted by an error]" in captured.out
+    assert "[I ran into a problem while answering. Please try again later.]" in captured.out

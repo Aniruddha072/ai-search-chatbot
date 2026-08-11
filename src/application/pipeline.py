@@ -96,7 +96,7 @@ class ChatPipeline:
             logger.warning("answer generation failed: %s", exc)
             degraded = self._degraded_answer(
                 user_query,
-                "I'm having trouble generating an answer right now. Please try again.",
+                "I'm having trouble generating an answer right now. Please try again later.",
                 query=query,
             )
             _log_turn_timings(timings, turn_start)

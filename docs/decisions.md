@@ -1031,21 +1031,59 @@ Reason:
 - Audited every first-party log call before picking the new default:
   every `logger.info`/`logger.warning` in the codebase covers a
   condition the CLI *already* renders cleanly to the user through its
-  own output (`(evaluation unavailable: ...)`, `[response interrupted
-  by an error]`, the degraded-answer text itself) - the raw log line is
-  pure duplication for an end user, never new information. The one
-  `ERROR`-level line ever observed came from a third-party library
-  (`instructor`'s own retry-exhaustion log), not this codebase. No
-  `logger.critical()` call exists anywhere, in this project or its
-  dependencies as observed - so `CRITICAL` is, in practice, silent
-  under every condition tested, including a real live failure (a
-  generation call failing mid-turn from Groq's daily quota still
-  cooling down) - verified live: the terminal showed only the CLI's own
-  `[response interrupted by an error]` message, no log line at all.
+  own output (an evaluation-unavailable note, a generation-failure
+  notice, the degraded-answer text itself - exact wording refined
+  further in Decision 13.4) - the raw log line is pure duplication for
+  an end user, never new information. The one `ERROR`-level line ever
+  observed came from a third-party library (`instructor`'s own
+  retry-exhaustion log), not this codebase. No `logger.critical()` call
+  exists anywhere, in this project or its dependencies as observed - so
+  `CRITICAL` is, in practice, silent under every condition tested,
+  including a real live failure (a generation call failing mid-turn
+  from Groq's daily quota still cooling down) - verified live: the
+  terminal showed only the CLI's own degraded-turn message, no log line
+  at all.
 - Fully reversible per-run, not a capability removed: `LOG_LEVEL=INFO`
   in `.env` restores every log Phase 13 added (turn timings, HTTP
   request logs) for anyone debugging - the default just stops assuming
   a developer is always the one watching the terminal.
+
+---
+
+### Decision 13.4
+
+Date: 2026-08-11
+
+Implemented:
+Two user-facing degraded-turn messages reworded in `presentation/cli.py`:
+`_print_evaluation`'s error branch went from printing the raw
+`evaluation.error` string to a fixed `"(scores unavailable for this
+answer)"`; `_handle_turn`'s mid-stream-exception branch went from
+`"[response interrupted by an error]"` to `"[I ran into a problem while
+answering. Please try again later.]"` (also applied to the matching
+non-streaming message in `pipeline.py`'s `handle()`, for the same
+reason). "Later," not just "again" - an immediate retry is likely to
+hit the exact same transient condition (e.g. a rate limit) that just
+failed.
+
+Reason:
+- `Decision 11.5` made sure an evaluation failure was never silently
+  swallowed, but the literal text it chose to surface was always the
+  raw exception - fine for a developer, not for the target audience of
+  a "genuine chatbot" the CLI is meant to be. Direct user feedback: "the
+  error messages dont really explain what happened... hand out simple
+  errors, but not too dumb-sounding."
+- The full technical detail was never actually lost by this change -
+  it was already flowing into `EvaluationResult.error` and
+  `EvaluationService`'s own warning log the whole time; Decision 13.3
+  already made that log opt-in via `LOG_LEVEL=INFO` rather than
+  default-visible. This decision only changes what's printed directly
+  into the conversation, matching the tone `pipeline.py`'s existing
+  degraded messages already used ("I'm having trouble generating an
+  answer right now...") rather than inventing a new voice.
+- Verified live: a real turn with a failed evaluation (Groq rate limit)
+  printed `(scores unavailable for this answer)` with no technical
+  detail, while the answer itself and its sources rendered normally.
 
 ---
 
