@@ -42,7 +42,7 @@ Full pipeline diagram and component responsibilities: [`docs/architecture.md`](d
 - [x] Phase 10 — Resilience hardening
 - [x] Phase 11 — CLI presentation
 - [x] Phase 12 — Testing
-- [ ] Phase 13 — Observability & polish
+- [x] Phase 13 — Observability & polish
 - [ ] Phase 14 — Optional: FastAPI layer
 
 ## Project Structure
@@ -142,6 +142,12 @@ python -m src.presentation.cli
 Interactive terminal chat: ask a question, watch the answer stream in
 token-by-token, then see its sources and RAGAS scores. Ctrl-C or Ctrl-D
 (EOF) exits cleanly.
+
+Structured logs (per-turn correlation IDs, and one `turn timings:` summary
+line per turn breaking down planning/search/context/generation/eval
+durations) go to stderr, kept separate from the streamed answer text on
+stdout. Redirect them independently if useful:
+`python -m src.presentation.cli 2>chat.log`.
 
 ## Testing
 

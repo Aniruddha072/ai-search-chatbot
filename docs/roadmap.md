@@ -152,9 +152,9 @@ Each box is independently completable and independently testable.
 - [x] At least one full end-to-end integration test with real Tavily + Groq
 
 ### Phase 13 — Observability & polish
-- [ ] Per-stage timing captured and logged per turn (planning/search/context/generation/eval durations)
-- [ ] README: setup instructions, architecture summary, how to run
-- [ ] Finalize architecture.md/decisions.md with any deviations made during implementation
+- [x] Per-stage timing captured and logged per turn (planning/search/context/generation/eval durations)
+- [x] README: setup instructions, architecture summary, how to run
+- [x] Finalize architecture.md/decisions.md with any deviations made during implementation
 
 ### Phase 14 — Optional: FastAPI layer
 - [ ] `presentation/api.py`: single `POST /chat` endpoint calling the same `ChatPipeline`

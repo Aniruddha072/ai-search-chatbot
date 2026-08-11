@@ -947,6 +947,70 @@ Reason:
 
 ---
 
+### Decision 13.1
+
+Date: 2026-08-11
+
+Implemented:
+`ChatPipeline` records per-stage wall-clock durations (planning, search,
+context, generation, eval) into a `dict[str, float]` via a small
+`_timed()` helper, and logs one `turn timings: ... total=Xs` INFO summary
+line at the true end of every turn - success, or any degradation point
+(invalid input, zero sources, generation failure) - reporting whatever
+stages actually ran.
+
+Reason:
+- Matches the roadmap's exact scope (`planning/search/context/
+  generation/eval durations`) without adding new pipeline stages or
+  failure modes - purely additive instrumentation.
+- `handle_streaming()`'s "generation" duration can't be measured by
+  wrapping a single awaitable the way the other four stages are,
+  because token generation happens as the caller iterates the stream,
+  not inside one call `ChatPipeline` controls. `PipelineStream.streaming()`
+  instead starts a timer when the stream is handed to the caller and
+  stops it inside `finalize()` (once `get_answer()` is called after full
+  consumption) - an honest measure of what the user actually waited for,
+  at the cost of also including the caller's own per-chunk I/O
+  (printing to a terminal), not just the Groq call itself.
+- If a stream fails mid-consumption (Decision 11.4 - propagates
+  uncaught, by design), the timing summary never fires, since
+  `finalize()` is never reached. Left as a known gap rather than adding
+  complexity to catch it: `cli.py` already logs a `streaming turn
+  failed: %s` warning for that case, so the failure isn't silent, just
+  without a stage breakdown.
+- Degraded/early-exit turns still log a summary (with fewer stages
+  present) rather than skipping the log line entirely - observability
+  should reflect real behavior including degraded turns, not just the
+  happy path.
+
+---
+
+### Decision 13.2
+
+Date: 2026-08-11
+
+Implemented:
+`configure_logging()`'s handler now writes to `stderr`, not `stdout`.
+
+Reason:
+- Closes the cosmetic gap noted in Phase 11 (`phase11.md`): `presentation/
+  cli.py` prints the streamed answer to `stdout`, and the previous
+  shared-stdout handler meant log lines (Groq/Tavily HTTP request logs,
+  `instructor`'s own logs) interleaved with the prompt and output. Never
+  landed *inside* streamed tokens (nothing touched logs mid-stream), so
+  it was noise, not a correctness bug - but still worth fixing once
+  Phase 13 made observability output (the new turn-timing summary line)
+  something worth keeping clean and separable.
+- One line. Both streams still land in the same terminal by default, so
+  nothing about the interactive experience changes - but `stdout` can
+  now be redirected/piped independently to get just the answer text,
+  and `stderr` independently to get just structured logs. Verified live:
+  a real CLI run with `stdout`/`stderr` captured to separate files
+  showed clean answer text with zero log lines on `stdout`, and the new
+  `turn timings: ...` line correctly on `stderr`.
+
+---
+
 ## 1. Key design decisions
 
 **1.1 One combined Groq call for intent + query generation, not two.**
