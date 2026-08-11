@@ -22,8 +22,9 @@ printed to a terminal), so there's nothing honest left to silently
 degrade to - it propagates to the caller, same as pre-Phase-10 AnswerGenerator
 behavior for the non-streaming path (Decision 6.1).
 """
+import time
 from dataclasses import replace
-from typing import AsyncIterator
+from typing import AsyncIterator, Awaitable, TypeVar
 
 from src.application.answer_generator import AnswerGenerator, StreamedAnswer
 from src.application.context_builder import ContextBuilder
@@ -36,6 +37,22 @@ from src.domain.interfaces import Ranker
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+_T = TypeVar("_T")
+
+
+async def _timed(timings: dict[str, float], stage: str, coro: Awaitable[_T]) -> _T:
+    start = time.monotonic()
+    try:
+        return await coro
+    finally:
+        timings[stage] = time.monotonic() - start
+
+
+def _log_turn_timings(timings: dict[str, float], turn_start: float) -> None:
+    breakdown = " ".join(f"{stage}={duration:.2f}s" for stage, duration in timings.items())
+    total = time.monotonic() - turn_start
+    logger.info("turn timings: %s total=%.2fs", breakdown, total)
 
 
 class ChatPipeline:
@@ -62,35 +79,52 @@ class ChatPipeline:
         self._max_query_length = max_query_length
 
     async def handle(self, user_query: str) -> Answer:
-        prepared = await self._prepare(user_query)
+        turn_start = time.monotonic()
+        timings: dict[str, float] = {}
+
+        prepared = await self._prepare(user_query, timings)
         if isinstance(prepared, Answer):
+            _log_turn_timings(timings, turn_start)
             return prepared
         query, sources = prepared
 
         try:
-            answer = await self._answer_generator.generate(query, sources)
+            answer = await _timed(
+                timings, "generation", self._answer_generator.generate(query, sources)
+            )
         except Exception as exc:
             logger.warning("answer generation failed: %s", exc)
-            return self._degraded_answer(
+            degraded = self._degraded_answer(
                 user_query,
                 "I'm having trouble generating an answer right now. Please try again.",
                 query=query,
             )
+            _log_turn_timings(timings, turn_start)
+            return degraded
 
         # Evaluated against the full source set ContextBuilder produced,
         # not answer.sources (only what the model chose to cite) - scoring
         # faithfulness against a model's own self-reported citations would
         # be circular.
-        evaluation = await self._evaluation_service.evaluate(
-            question=query.original_text,
-            answer=answer.text,
-            contexts=[source.content_used for source in sources],
+        evaluation = await _timed(
+            timings,
+            "eval",
+            self._evaluation_service.evaluate(
+                question=query.original_text,
+                answer=answer.text,
+                contexts=[source.content_used for source in sources],
+            ),
         )
+        _log_turn_timings(timings, turn_start)
         return replace(answer, evaluation=evaluation)
 
     async def handle_streaming(self, user_query: str) -> "PipelineStream":
-        prepared = await self._prepare(user_query)
+        turn_start = time.monotonic()
+        timings: dict[str, float] = {}
+
+        prepared = await self._prepare(user_query, timings)
         if isinstance(prepared, Answer):
+            _log_turn_timings(timings, turn_start)
             return PipelineStream.completed(prepared)
         query, sources = prepared
 
@@ -100,13 +134,19 @@ class ChatPipeline:
             evaluation_service=self._evaluation_service,
             original_query=query.original_text,
             context_sources=sources,
+            timings=timings,
+            turn_start=turn_start,
         )
 
-    async def _prepare(self, user_query: str) -> Answer | tuple[Query, tuple[Source, ...]]:
+    async def _prepare(
+        self, user_query: str, timings: dict[str, float]
+    ) -> Answer | tuple[Query, tuple[Source, ...]]:
         """Validation through context-building - the prefix shared by
         handle() and handle_streaming(). Returns an already-final degraded
         Answer if there's nothing to generate from, otherwise the (Query,
-        sources) generation needs.
+        sources) generation needs. Records planning/search/context stage
+        durations into the caller's timings dict as it goes, so a turn
+        that degrades here still reports whatever stages actually ran.
         """
         stripped_query = user_query.strip()
         if not stripped_query or len(stripped_query) > self._max_query_length:
@@ -117,13 +157,15 @@ class ChatPipeline:
                 f"{self._max_query_length} characters.",
             )
 
-        query = await self._query_planner.plan(stripped_query)
-        raw_results = await self._search_orchestrator.search_all(
-            query, self._max_results_per_query
+        query = await _timed(timings, "planning", self._query_planner.plan(stripped_query))
+        raw_results = await _timed(
+            timings,
+            "search",
+            self._search_orchestrator.search_all(query, self._max_results_per_query),
         )
         deduped = self._deduplicator.deduplicate(raw_results)
         ranked = self._ranker.rank(deduped, query.original_text)
-        sources = await self._context_builder.build(ranked)
+        sources = await _timed(timings, "context", self._context_builder.build(ranked))
 
         if not sources:
             logger.info("no sources found for query, skipping generation")
@@ -179,14 +221,30 @@ class PipelineStream:
         evaluation_service: EvaluationService,
         original_query: str,
         context_sources: tuple[Source, ...],
+        timings: dict[str, float],
+        turn_start: float,
     ) -> "PipelineStream":
+        # "generation" here spans stream acquisition through full
+        # consumption by whoever's iterating (e.g. cli.py printing each
+        # chunk), not just the underlying Groq call - there's no single
+        # awaitable to wrap the way _timed() wraps handle()'s non-streaming
+        # generate() call, since the tokens are produced as the caller
+        # iterates, not inside one call this class controls.
+        generation_start = time.monotonic()
+
         async def finalize() -> Answer:
             answer = streamed_answer.build_answer()
-            evaluation = await evaluation_service.evaluate(
-                question=original_query,
-                answer=answer.text,
-                contexts=[source.content_used for source in context_sources],
+            timings["generation"] = time.monotonic() - generation_start
+            evaluation = await _timed(
+                timings,
+                "eval",
+                evaluation_service.evaluate(
+                    question=original_query,
+                    answer=answer.text,
+                    contexts=[source.content_used for source in context_sources],
+                ),
             )
+            _log_turn_timings(timings, turn_start)
             return replace(answer, evaluation=evaluation)
 
         return cls(streamed_answer.__aiter__(), finalize)

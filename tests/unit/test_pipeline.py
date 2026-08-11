@@ -4,6 +4,8 @@ EvaluationService - faked only at the true I/O boundary (SearchProvider,
 LLMProvider, ContentExtractor, Evaluator). Exercises the entire real
 chain offline.
 """
+import logging
+
 import pytest
 
 from src.application.answer_generator import AnswerGenerator
@@ -460,3 +462,114 @@ async def test_handle_streaming_evaluates_against_full_context_not_just_cited_so
 
     assert len(answer.sources) == 1
     assert len(received_contexts) == 2
+
+
+def _turn_timing_messages(caplog) -> list[str]:
+    return [r.message for r in caplog.records if r.message.startswith("turn timings:")]
+
+
+@pytest.mark.asyncio
+async def test_handle_logs_turn_timings_for_a_successful_turn(caplog):
+    caplog.set_level(logging.INFO, logger="src.application.pipeline")
+    sub_query = "best computer engineering colleges pune"
+    search_provider = FakeSearchProvider(
+        {sub_query: [SearchResult(url="https://example.com/pccoe", title="PCCOE", snippet="s", source_query=sub_query, provider_score=0.9)]}
+    )
+    llm_provider = FakeLLMProvider(
+        structured_response=QueryPlanResponse(intent="i", complexity="simple", queries=[sub_query]),
+        generate_response="PCCOE is a great choice [1].",
+    )
+    pipeline = build_pipeline(search_provider, llm_provider)
+
+    await pipeline.handle("best computer engineering colleges in Pune")
+
+    [message] = _turn_timing_messages(caplog)
+    for stage in ("planning=", "search=", "context=", "generation=", "eval=", "total="):
+        assert stage in message
+
+
+@pytest.mark.asyncio
+async def test_handle_logs_turn_timings_with_no_stages_when_input_rejected(caplog):
+    caplog.set_level(logging.INFO, logger="src.application.pipeline")
+    pipeline = build_pipeline(FakeSearchProvider({}), FakeLLMProvider())
+
+    await pipeline.handle("   ")
+
+    [message] = _turn_timing_messages(caplog)
+    assert "total=" in message
+    for stage in ("planning=", "search=", "context=", "generation=", "eval="):
+        assert stage not in message
+
+
+@pytest.mark.asyncio
+async def test_handle_logs_turn_timings_through_context_when_no_sources_found(caplog):
+    caplog.set_level(logging.INFO, logger="src.application.pipeline")
+    llm_provider = FakeLLMProvider(
+        structured_response=QueryPlanResponse(
+            intent="i", complexity="simple", queries=["some obscure query"]
+        ),
+        generate_response="should never be used",
+    )
+    pipeline = build_pipeline(FakeSearchProvider({}), llm_provider)
+
+    await pipeline.handle("some obscure query")
+
+    [message] = _turn_timing_messages(caplog)
+    for stage in ("planning=", "search=", "context=", "total="):
+        assert stage in message
+    for stage in ("generation=", "eval="):
+        assert stage not in message
+
+
+@pytest.mark.asyncio
+async def test_handle_logs_turn_timings_through_generation_when_generation_fails(caplog):
+    caplog.set_level(logging.INFO, logger="src.application.pipeline")
+    sub_query = "best computer engineering colleges pune"
+    search_provider = FakeSearchProvider(
+        {sub_query: [SearchResult(url="https://example.com/pccoe", title="PCCOE", snippet="s", source_query=sub_query, provider_score=0.9)]}
+    )
+
+    class FailingLLMProvider(LLMProvider):
+        async def generate_structured(self, prompt, schema, *, system_prompt=None):
+            return QueryPlanResponse(intent="i", complexity="simple", queries=[sub_query])
+
+        async def generate(self, prompt, *, system_prompt=None):
+            raise RuntimeError("groq exploded")
+
+        async def generate_stream(self, prompt, *, system_prompt=None):
+            raise RuntimeError("groq exploded")
+            yield  # pragma: no cover - makes this an async generator function
+
+    pipeline = build_pipeline(search_provider, FailingLLMProvider())
+
+    await pipeline.handle("best computer engineering colleges in Pune")
+
+    [message] = _turn_timing_messages(caplog)
+    for stage in ("planning=", "search=", "context=", "generation=", "total="):
+        assert stage in message
+    assert "eval=" not in message
+
+
+@pytest.mark.asyncio
+async def test_handle_streaming_logs_turn_timings_after_full_consumption(caplog):
+    caplog.set_level(logging.INFO, logger="src.application.pipeline")
+    sub_query = "best computer engineering colleges pune"
+    search_provider = FakeSearchProvider(
+        {sub_query: [SearchResult(url="https://example.com/pccoe", title="PCCOE", snippet="s", source_query=sub_query, provider_score=0.9)]}
+    )
+    llm_provider = FakeLLMProvider(
+        structured_response=QueryPlanResponse(intent="i", complexity="simple", queries=[sub_query]),
+        generate_response="PCCOE is a great choice [1].",
+    )
+    pipeline = build_pipeline(search_provider, llm_provider)
+
+    stream = await pipeline.handle_streaming("best computer engineering colleges in Pune")
+    assert _turn_timing_messages(caplog) == []  # nothing logged until fully consumed
+
+    async for _ in stream:
+        pass
+    await stream.get_answer()
+
+    [message] = _turn_timing_messages(caplog)
+    for stage in ("planning=", "search=", "context=", "generation=", "eval=", "total="):
+        assert stage in message

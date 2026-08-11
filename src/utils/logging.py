@@ -21,8 +21,13 @@ class _TurnIdFilter(logging.Filter):
 
 
 def configure_logging(level: str = "INFO") -> None:
-    """Set up one formatted handler on the root logger. Call once at startup."""
-    handler = logging.StreamHandler(sys.stdout)
+    """Set up one formatted handler on the root logger. Call once at startup.
+
+    Logs to stderr, not stdout - presentation.cli prints streamed answer
+    text to stdout, and the two must stay logically separate even though
+    both land in the same terminal by default (Decision 13.2).
+    """
+    handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(
         logging.Formatter(
             fmt="%(asctime)s | %(levelname)-8s | turn=%(turn_id)s | %(name)s | %(message)s",

@@ -1,4 +1,5 @@
 import logging
+import sys
 
 import pytest
 
@@ -47,3 +48,13 @@ def test_configure_logging_attaches_one_formatted_handler_to_root():
 
     assert len(root.handlers) == 1
     assert any(isinstance(f, _TurnIdFilter) for f in root.handlers[0].filters)
+
+
+def test_configure_logging_writes_to_stderr_not_stdout():
+    """cli.py streams answer text to stdout - logs must land on stderr so
+    the two never interleave, even though both show up in one terminal.
+    """
+    configure_logging()
+    root = logging.getLogger()
+
+    assert root.handlers[0].stream is sys.stderr
