@@ -81,3 +81,30 @@ Third working session, 12:57–20:32. Took the pipeline from "works but fragile"
 **State at end of session:** see [`docs/session-handoff.md`](docs/session-handoff.md) (local-only) for exact resume-point details.
 
 ---
+
+## 2026-08-11 – 2026-08-12 — Testing, observability, and a public demo (Phases 12–14)
+
+Fourth working session, spanning into the next day. Closed out the
+project's remaining core phases: an audit-driven testing pass, real
+per-turn observability, two rounds of direct-feedback UX polish, and a
+public Streamlit demo — the project's first externally-facing surface.
+
+**Phases completed:** [12](docs/phases/phase12.md) (testing) ·
+[13](docs/phases/phase13.md) (observability & polish) ·
+[14](docs/phases/phase14.md) (public Streamlit demo)
+
+**Commits:** `c6d3a7d` → `1a456ea` (Phases 12–13, 6 commits, pushed).
+Full history: `git log --oneline c6d3a7d..1a456ea`. Phase 14 commit(s)
+pending as of this entry.
+
+**Highlights worth remembering:**
+- Phase 12 was an audit, not a rebuild: `pytest-cov` showed every `domain/`/`application/`/`infrastructure/` module already fully covered incidentally, with only 2 real gaps in `ranker.py` and a closeable gap in `cli.py` — both closed with genuinely new tests, not busywork.
+- The morning started with a real evaluation failure (`TimeoutError`) reported live — resolved not by touching the evaluator, but by measuring a real successful RAGAS call's own runtime (~14.5s) and finding the 15s budget was simply too tight; raising it to 30s, then getting one real live run to print actual Faithfulness/Context Precision scores end-to-end, closed out Phase 11's evaluation work for good.
+- Two rounds of live dogfooding drove Phase 13's real shape, both from direct feedback rather than planning: separating stdout/stderr didn't itself make the CLI *look* clean (logs still shared the terminal by default) until `LOG_LEVEL` defaulted to `CRITICAL`; and even a quiet CLI still leaked raw exception text through two on-purpose messages, fixed to a simple, non-technical, always-actionable tone ("...Please try again **later**." — the word mattered, by explicit request).
+- Phase 14 started with a wrong first choice, caught before any code was written: Gradio + Hugging Face Spaces was selected, then ruled out by checking HF's *current* docs live — creating a Gradio Space now needs a paid plan, conflicting with an explicit "no money" requirement. Streamlit Community Cloud, checked the same way, is genuinely free.
+- The real engineering surprise of the whole session: a cached pipeline reused across Streamlit reruns crashes on a session's *second* question (`RuntimeError: Event loop is closed`) because async HTTP clients bind to whichever event loop was running when first used, and `asyncio.run()` tears its loop down each time. Reproduced in two lines of isolated `httpx` code before touching the real app, fixed by building a fresh pipeline inside every turn's single `asyncio.run()` call, and verified live through the actual running demo — two real consecutive questions, no crash.
+- `st.write_stream()`, the obvious built-in for streaming `PipelineStream`, turned out unusable for two independent reasons found by reading Streamlit's own source: it spins up its own separate event loop internally (the same crash, one level deeper), and it only accepts a real async generator, not `PipelineStream`'s `__aiter__`-based design. Streamed by hand into a placeholder instead.
+
+**State at end of session:** see [`docs/session-handoff.md`](docs/session-handoff.md) (local-only) for exact resume-point details.
+
+---

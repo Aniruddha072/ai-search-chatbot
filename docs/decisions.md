@@ -1087,6 +1087,145 @@ Reason:
 
 ---
 
+### Decision 14.1
+
+Date: 2026-08-12
+
+Implemented:
+Phase 14's public demo hosting chosen as Streamlit Community Cloud
+(`src/presentation/streamlit_app.py`, root `requirements.txt`), not the
+originally-selected Gradio + Hugging Face Spaces.
+
+Reason:
+- Gradio + HF Spaces was the initial recommendation and was explicitly
+  selected before any implementation started. Before building anything,
+  HF's current docs were checked live (this project's standing rule:
+  verify real external behavior before designing around it) - and found
+  that creating a Gradio or Docker Space now requires a paid PRO plan on
+  a personal account; free accounts can only run pre-existing Spaces on
+  ZeroGPU, not create new Gradio ones. This directly conflicted with the
+  explicit "I do not want to spend any money" requirement.
+- Streamlit Community Cloud was verified live (streamlit.io/cloud) as
+  free for public apps deployed from a GitHub repo, no card on file
+  mentioned - and its own `st.write_stream()`/`st.chat_input`/
+  `st.chat_message` primitives map onto this project's existing
+  `PipelineStream` (async iterator of text chunks) closely enough that
+  no real adapter layer was needed beyond the presentation-layer file
+  itself (see Decision 14.3 for where that mapping wasn't as direct as
+  first assumed).
+- This was caught and corrected *before* any Gradio-specific code was
+  written, not discovered mid-implementation - the same
+  verify-before-building discipline this project has applied to every
+  other external integration (Tavily's relative-URL results, Groq's
+  real rate-limit headers, RAGAS/instructor's actual client
+  construction API, etc).
+
+---
+
+### Decision 14.2
+
+Date: 2026-08-12
+
+Implemented:
+`infrastructure/evaluation/null_evaluator.py`: a no-op `Evaluator`
+returning `EvaluationResult()` instantly, no I/O. `bootstrap.py` split
+into a private `_build_pipeline(settings, evaluator)` helper plus two
+public entry points - `build_chat_pipeline()` (unchanged: real
+`RagasEvaluator`, used by the CLI) and `build_demo_pipeline()` (new:
+`NullEvaluator`, used by the Streamlit demo).
+
+Reason:
+- The public demo must not run RAGAS on every request: RAGAS makes
+  several extra Groq LLM-judge calls per answer on top of the ones
+  already needed to plan and generate it, adding real latency and, on a
+  free-tier account already shown to hit both per-minute and daily
+  quota limits during normal development (Decision 12.2), a real risk
+  that one visitor's evaluation calls exhaust a shared quota for
+  everyone else hitting the public demo.
+- `EvaluationService` already treats "no scores" as a normal, expected
+  outcome for any evaluator failure (Decision 1.6) - `NullEvaluator`
+  produces exactly that outcome on purpose, with no I/O, so nothing
+  downstream (`ChatPipeline`, `EvaluationService`, the CLI's own
+  `_print_evaluation`-equivalent rendering) needed to change or even be
+  aware a different evaluator is in use.
+- An optional/defaulted `evaluator` parameter on a single
+  `build_pipeline()` function was considered and rejected in favor of
+  two explicitly-named functions - consistent with Decision 9.2's
+  precedent of explicit required collaborators over implicit defaults.
+  A default risks a future caller silently getting (or not getting)
+  real RAGAS scores depending on an easy-to-miss default value, rather
+  than making the choice obvious at the call site.
+- `RagasEvaluator`'s import was moved from module level into
+  `build_chat_pipeline()`'s function body (a deliberate, commented
+  exception to normal top-of-file imports) - `ragas_evaluator.py`
+  imports `ragas`, which the demo's `requirements.txt` deliberately
+  excludes. A module-level import would have made importing
+  `bootstrap.py` itself require `ragas` to be installed, breaking
+  `build_demo_pipeline()`/the whole Streamlit app even though it never
+  touches `RagasEvaluator` - caught before it could ship as a broken
+  Streamlit Cloud deploy, by checking what `requirements.txt`
+  deliberately leaves out against what `bootstrap.py` actually imports.
+
+---
+
+### Decision 14.3
+
+Date: 2026-08-12
+
+Implemented:
+`streamlit_app.py` builds a fresh `build_demo_pipeline()` inside every
+single per-turn `asyncio.run()` call - never cached across turns via
+`st.cache_resource` - and streams tokens by hand (iterating the chunks
+and updating a `st.empty()` placeholder) rather than passing
+`PipelineStream` to `st.write_stream()` directly.
+
+Reason:
+- Verified live, with a minimal reproduction, before writing the real
+  app code: an `httpx.AsyncClient` (which `GroqClient`/`TavilyProvider`
+  both use, directly or via their SDKs) reused across two separate
+  `asyncio.run()` calls raises `RuntimeError: Event loop is closed` on
+  the second call - `asyncio.run()` tears its event loop down when it
+  returns, and the client's connection pool is bound to whichever loop
+  was running when it was first used. A cached pipeline (`st.
+  cache_resource`) plus one `asyncio.run()` per Streamlit rerun - the
+  natural-looking design - would crash on a session's *second*
+  question, not the first, making it easy to ship without noticing in
+  a quick one-question smoke test.
+- The fix verified as sufficient: fresh clients constructed and used
+  entirely inside one `asyncio.run()` call, repeated per turn, complete
+  cleanly across repeated calls with no crash - confirmed both with an
+  isolated `httpx` reproduction and live, via two real consecutive
+  questions through the actual running Streamlit app.
+- Leaving each turn's clients unclosed for garbage collection (rather
+  than adding `close()`/`aclose()` methods to `GroqClient`/
+  `TavilyProvider` just for this one caller) was verified live not to
+  raise or warn - consistent with the CLI's own model of relying on
+  process exit rather than explicit resource lifecycle management, and
+  avoiding scope creep into already-shipped, already-tested
+  infrastructure classes for a phase explicitly scoped to stay simple.
+- `st.write_stream()` was the original plan (Decision 14.1's note that
+  it maps onto `PipelineStream` closely) - but its own internal
+  async-to-sync conversion (`type_util.async_generator_to_sync`) spins
+  up a *separate*, brand-new event loop to consume whatever async
+  generator it's given, which would cross loops with whatever loop
+  `handle_streaming()`'s planning/search stages already ran under - the
+  exact same failure mode. It also only accepts a real async generator
+  (`inspect.isasyncgen`), not an arbitrary object implementing
+  `__aiter__` like `PipelineStream` - a second, independent reason it
+  couldn't be passed directly. Manually iterating inside the turn's own
+  `asyncio.run()` call and updating a placeholder avoids both problems
+  at once, at the cost of `st.write_stream()`'s built-in typewriter
+  animation - chunks still render progressively as they arrive, just
+  without the character-reveal effect.
+- This also means the demo loses the CLI's cross-turn `InMemoryCache`
+  benefit within one browser session (a fresh pipeline means fresh,
+  empty query-plan/search-result caches every turn) - an accepted,
+  deliberate tradeoff for a low-traffic public demo, not something
+  worth a custom persistent-event-loop workaround for the sake of a
+  cache hit on a repeated identical question.
+
+---
+
 ## 1. Key design decisions
 
 **1.1 One combined Groq call for intent + query generation, not two.**

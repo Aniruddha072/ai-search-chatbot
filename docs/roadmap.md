@@ -54,8 +54,8 @@ Unit tests per application-layer component (providers mocked), integration tests
 **Phase 13 — Observability & polish**
 Structured per-turn logging/timing, README, architecture/decisions docs finalization for the internship writeup.
 
-**Phase 14 — Optional: FastAPI layer**
-`api.py` wrapping the same `ChatPipeline`, only after everything above is solid.
+**Phase 14 — Public Streamlit demo**
+`streamlit_app.py`, a minimal presentation-layer adapter over the same `ChatPipeline` (via a new `build_demo_pipeline()`), deployed free on Streamlit Community Cloud. Skips RAGAS scoring on the public surface (`NullEvaluator`) - the real evaluation pipeline stays available and documented through the CLI. A future production-style deployment could add `presentation/api.py` (FastAPI) in front of the same pipeline, but that's explicitly out of scope here - see the Phase 14 checklist below.
 
 ---
 
@@ -156,7 +156,13 @@ Each box is independently completable and independently testable.
 - [x] README: setup instructions, architecture summary, how to run
 - [x] Finalize architecture.md/decisions.md with any deviations made during implementation
 
-### Phase 14 — Optional: FastAPI layer
-- [ ] `presentation/api.py`: single `POST /chat` endpoint calling the same `ChatPipeline`
-- [ ] Request/response Pydantic models
-- [ ] SSE or WebSocket streaming variant (optional stretch)
+### Phase 14 — Public Streamlit demo
+- [x] `infrastructure/evaluation/null_evaluator.py`: no-op `Evaluator`, instant `EvaluationResult()`, no I/O
+- [x] `bootstrap.py`: extract shared wiring into a private helper; add `build_demo_pipeline()` (NullEvaluator) alongside unchanged `build_chat_pipeline()` (real RagasEvaluator)
+- [x] `presentation/streamlit_app.py`: chat UI reusing `ChatPipeline.handle_streaming()`, streams answers + renders sources, reuses the CLI's friendly degraded-turn wording
+- [x] Root `requirements.txt` for Streamlit Cloud's install step, deliberately excluding ragas/numpy/datasets/langchain/etc
+- [x] README: Live Demo section + dedicated Evaluation section documenting Faithfulness/Context Precision, why the public demo skips them, and the live-verified evaluation result
+- [x] Live-verify locally: real Tavily/Groq calls through the Streamlit UI, including a second turn in the same session (this caught and fixed a real event-loop-reuse bug - see Decision 14.3)
+- [ ] Deploy to Streamlit Community Cloud (manual step: GitHub OAuth + secrets entry, done by the project owner, not part of this repo's code)
+
+**Future work, not implemented here:** a production-style deployment could add `presentation/api.py` (FastAPI) in front of the same `ChatPipeline`, with a separate frontend - reusing the pipeline exactly as `cli.py` and `streamlit_app.py` already do, with no pipeline logic duplicated.
