@@ -1,0 +1,17 @@
+# Streamlit Community Cloud installs from this file, not pyproject.toml.
+# Deliberately excludes ragas and its runtime dependencies (numpy, datasets,
+# tiktoken, langchain, instructor, etc.) - the public demo wires a
+# NullEvaluator instead of RagasEvaluator (see src/bootstrap.py,
+# build_demo_pipeline()), and src/bootstrap.py only imports
+# ragas_evaluator.py lazily, inside build_chat_pipeline(), specifically so
+# importing this file's dependency graph never requires ragas/instructor
+# to be installed. See README's Evaluation section and docs/decisions.md,
+# 14.x.
+pydantic>=2.0
+pydantic-settings>=2.0
+python-dotenv>=1.0
+tavily-python>=0.5
+trafilatura>=1.8
+groq>=1.0
+tenacity>=9.1
+streamlit>=1.38

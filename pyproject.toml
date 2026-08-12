@@ -40,6 +40,9 @@ dev = [
     "pytest-asyncio>=0.23",
     "pytest-cov>=6.0",
 ]
+demo = [
+    "streamlit>=1.38",
+]
 
 [build-system]
 requires = ["setuptools>=68"]
