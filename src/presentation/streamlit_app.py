@@ -29,6 +29,14 @@ loop to consume it, which would cross loops with whatever loop
 handle_streaming() already used for planning/search - the same failure
 mode. Streaming is done by hand instead: iterate the chunks inside the
 turn's own asyncio.run() call and update a placeholder as they arrive.
+
+Phase 15 adds conversation memory: before each turn, build_conversation_context()
+(conversation_context.py) turns the last few completed (question, answer)
+pairs already sitting in st.session_state.messages into a bounded
+ConversationContext, passed into handle_streaming() so QueryPlanner can
+resolve a follow-up's pronouns/references. That helper lives in its own
+module rather than here, since this file runs top-level Streamlit calls
+on import and isn't itself unit-tested.
 """
 import asyncio
 import sys
@@ -49,7 +57,8 @@ import streamlit as st
 from src.application.pipeline import ChatPipeline
 from src.bootstrap import build_demo_pipeline
 from src.config.settings import get_settings
-from src.domain.entities import Answer
+from src.domain.entities import Answer, ConversationContext
+from src.presentation.conversation_context import build_conversation_context
 from src.utils.logging import configure_logging, get_logger, set_turn_id
 
 logger = get_logger(__name__)
@@ -78,10 +87,12 @@ def _sources_markdown(answer: Answer) -> str:
     return "\n".join(lines)
 
 
-async def _run_turn(user_query: str, placeholder) -> str:
+async def _run_turn(
+    user_query: str, conversation: ConversationContext, placeholder
+) -> str:
     set_turn_id(uuid.uuid4().hex[:8])
     pipeline: ChatPipeline = build_demo_pipeline()
-    stream = await pipeline.handle_streaming(user_query)
+    stream = await pipeline.handle_streaming(user_query, conversation)
 
     text = ""
     try:
@@ -111,12 +122,18 @@ for message in st.session_state.messages:
 
 user_query = st.chat_input("Ask a question")
 if user_query:
+    # Built from messages as they stand *before* this turn's question is
+    # appended below, so it only ever contains prior, completed turns.
+    conversation = build_conversation_context(
+        st.session_state.messages, get_settings().conversation_history_turns
+    )
+
     st.session_state.messages.append({"role": "user", "content": user_query})
     with st.chat_message("user"):
         st.markdown(user_query)
 
     with st.chat_message("assistant"):
         response_placeholder = st.empty()
-        full_response = asyncio.run(_run_turn(user_query, response_placeholder))
+        full_response = asyncio.run(_run_turn(user_query, conversation, response_placeholder))
 
     st.session_state.messages.append({"role": "assistant", "content": full_response})

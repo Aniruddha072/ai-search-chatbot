@@ -46,6 +46,28 @@ class Query:
 
 
 @dataclass(frozen=True)
+class ConversationTurn:
+    """One prior turn's question plus a truncated summary of its answer -
+    enough for QueryPlanner to resolve a follow-up's pronouns/references
+    against, without carrying a full multi-paragraph answer (and its
+    citation list) into every later planning prompt.
+    """
+
+    question: str
+    answer_summary: str
+
+
+@dataclass(frozen=True)
+class ConversationContext:
+    """A small, bounded window of recent turns - not full conversation
+    history. See ChatPipeline.handle()/handle_streaming()'s `conversation`
+    parameter and QueryPlanner.plan() for where this is built and consumed.
+    """
+
+    turns: tuple[ConversationTurn, ...] = ()
+
+
+@dataclass(frozen=True)
 class Source:
     """A ranked, deduplicated search result that made it into the LLM's
     context - with the citation index the answer will reference as [index].

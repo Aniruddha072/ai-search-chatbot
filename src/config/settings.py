@@ -44,6 +44,14 @@ class Settings(BaseSettings):
     query_plan_cache_ttl_seconds: float = Field(default=600.0, gt=0)
     search_result_cache_ttl_seconds: float = Field(default=3600.0, gt=0)
 
+    # How many recent (question, answer) turns QueryPlanner.plan() gets
+    # shown to resolve a follow-up's pronouns/references - a bounded
+    # window, not full history, to keep planning-prompt size roughly
+    # constant regardless of how long a conversation runs. 0 disables the
+    # feature entirely (presentation layers just never build a non-empty
+    # ConversationContext to pass in).
+    conversation_history_turns: int = Field(default=2, ge=0)
+
     max_query_length: int = Field(default=500, gt=0)
     max_retry_attempts: int = Field(default=3, gt=0)
     retry_backoff_seconds: float = Field(default=0.5, gt=0)

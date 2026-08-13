@@ -17,7 +17,7 @@ from src.application.query_planner import QueryPlanner
 from src.application.ranker import HeuristicRanker
 from src.application.search_orchestrator import SearchOrchestrator
 from src.config.prompts.query_planning import QueryPlanResponse
-from src.domain.entities import EvaluationResult, SearchResult
+from src.domain.entities import ConversationContext, ConversationTurn, EvaluationResult, SearchResult
 from src.domain.interfaces import ContentExtractor, Evaluator, LLMProvider, SearchProvider
 from src.infrastructure.cache.memory_cache import InMemoryCache
 
@@ -45,8 +45,10 @@ class FakeLLMProvider(LLMProvider):
         self._structured_response = structured_response
         self._raise_on_structured = raise_on_structured
         self._generate_response = generate_response
+        self.last_structured_prompt: str | None = None
 
     async def generate_structured(self, prompt, schema, *, system_prompt=None):
+        self.last_structured_prompt = prompt
         if self._raise_on_structured:
             raise self._raise_on_structured
         return self._structured_response
@@ -462,6 +464,75 @@ async def test_handle_streaming_evaluates_against_full_context_not_just_cited_so
 
     assert len(answer.sources) == 1
     assert len(received_contexts) == 2
+
+
+@pytest.mark.asyncio
+async def test_handle_streaming_threads_conversation_context_into_query_planning():
+    sub_query = "COEP Pune fees"
+    search_provider = FakeSearchProvider(
+        {
+            sub_query: [
+                SearchResult(
+                    url="https://example.com/coep",
+                    title="COEP",
+                    snippet="COEP Pune fee structure.",
+                    source_query=sub_query,
+                    provider_score=0.9,
+                )
+            ]
+        }
+    )
+    llm_provider = FakeLLMProvider(
+        structured_response=QueryPlanResponse(
+            intent="find cheapest college", complexity="moderate", queries=[sub_query]
+        ),
+        generate_response="COEP is the cheapest [1].",
+    )
+    pipeline = build_pipeline(search_provider, llm_provider)
+    conversation = ConversationContext(
+        turns=(
+            ConversationTurn(
+                question="best colleges in Pune?", answer_summary="COEP, VIT, PCCOE."
+            ),
+        )
+    )
+
+    stream = await pipeline.handle_streaming("which one is cheapest?", conversation)
+    async for _ in stream:
+        pass
+    await stream.get_answer()
+
+    assert "best colleges in Pune?" in llm_provider.last_structured_prompt
+    assert "which one is cheapest?" in llm_provider.last_structured_prompt
+
+
+@pytest.mark.asyncio
+async def test_handle_without_conversation_argument_sends_the_raw_question_as_before():
+    sub_query = "best computer engineering colleges pune"
+    search_provider = FakeSearchProvider(
+        {
+            sub_query: [
+                SearchResult(
+                    url="https://example.com/pccoe",
+                    title="PCCOE Admissions",
+                    snippet="PCCOE, Pune offers a well-regarded Computer Engineering program.",
+                    source_query=sub_query,
+                    provider_score=0.9,
+                )
+            ]
+        }
+    )
+    llm_provider = FakeLLMProvider(
+        structured_response=QueryPlanResponse(
+            intent="find CE colleges", complexity="simple", queries=[sub_query]
+        ),
+        generate_response="PCCOE is a great choice [1].",
+    )
+    pipeline = build_pipeline(search_provider, llm_provider)
+
+    await pipeline.handle("best computer engineering colleges in Pune")
+
+    assert llm_provider.last_structured_prompt == "best computer engineering colleges in Pune"
 
 
 def _turn_timing_messages(caplog) -> list[str]:
