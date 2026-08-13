@@ -82,6 +82,59 @@ interfaces only) ← **`infrastructure/`** (Tavily/Groq/RAGAS adapters) ←
   decision in [`docs/decisions.md`](docs/decisions.md), not left as tribal
   knowledge.
 
+## Conversation-Aware Follow-ups
+
+A common failure mode for RAG chatbots: ask "what are the best engineering
+colleges in Pune?", then "which one is cheapest?", and the pipeline
+searches that second question completely on its own - it has no idea what
+"which one" even refers to. `QueryPlanner` resolves this by resolving
+references against a small, bounded window of recent turns rather than the
+full conversation, so the planning prompt stays roughly constant size no
+matter how long a session runs:
+
+```mermaid
+flowchart TD
+    T1(["Turn 1\nbest colleges in Pune?"]) --> T2(["Turn 2\nwhich one is cheapest?"]) --> T3(["Turn 3\nits placement record?"]) --> T4(["Turn 4\nwhat about VIT?"]) --> T5(["Turn 5\nlast year's cutoff?"])
+
+    subgraph W2["Window used to plan Turn 2"]
+        direction LR
+        A1["Turn 1"]
+    end
+    subgraph W3["Window used to plan Turn 3"]
+        direction LR
+        B1["Turn 1"]
+        B2["Turn 2"]
+    end
+    subgraph W4["Window used to plan Turn 4"]
+        direction LR
+        C2["Turn 2"]
+        C3["Turn 3"]
+    end
+    subgraph W5["Window used to plan Turn 5"]
+        direction LR
+        D3["Turn 3"]
+        D4["Turn 4"]
+    end
+
+    style A1 fill:#2b3a55,color:#fff
+    style B1 fill:#2b3a55,color:#fff
+    style B2 fill:#2b3a55,color:#fff
+    style C2 fill:#2b3a55,color:#fff
+    style C3 fill:#2b3a55,color:#fff
+    style D3 fill:#2b3a55,color:#fff
+    style D4 fill:#2b3a55,color:#fff
+```
+
+Each window box is a real turn from a live-verified 5-question conversation - the oldest turn drops out as soon as a newer one arrives, keeping the window at a fixed size of 2 no matter how long the conversation runs.
+
+Resolution happens inside the same Groq call `QueryPlanner` already makes
+to decompose a question into search queries - not a separate LLM call - so
+this adds zero additional Groq calls per turn, with or without history
+present. The full turn-by-turn walkthrough (real resolved sub-queries at
+each step, including a topic switch partway through) is in
+[`docs/phases/phase15.md`](docs/phases/phase15.md); the design reasoning is
+in [Decisions 15.1-15.3](docs/decisions.md).
+
 ## Evaluation
 
 RAGAS (reference-free, LLM-judged) scoring is a real, load-bearing part
@@ -226,8 +279,9 @@ src/
 │       ├── answer_generation.txt   # cite-or-refuse system prompt, plain text
 │       └── answer_generation.py    # loads the .txt (no schema - free text, not structured)
 ├── presentation/
-│   ├── cli.py             # interactive chat loop: streams answers, prints sources + RAGAS scores, `python -m src.presentation.cli`
-│   └── streamlit_app.py   # public demo chat UI: streams answers + sources, skips RAGAS (NullEvaluator), `streamlit run src/presentation/streamlit_app.py`
+│   ├── cli.py                    # interactive chat loop: streams answers, prints sources + RAGAS scores, `python -m src.presentation.cli`
+│   ├── streamlit_app.py          # public demo chat UI: streams answers + sources, skips RAGAS (NullEvaluator), `streamlit run src/presentation/streamlit_app.py`
+│   └── conversation_context.py   # builds a windowed ConversationContext from session_state for follow-up resolution
 └── utils/
     ├── logging.py        # structured logging with per-turn correlation IDs
     └── token_counter.py  # approximate token counting (char-based heuristic)
@@ -253,7 +307,8 @@ tests/
 │   ├── test_ragas_evaluator.py
 │   ├── test_null_evaluator.py
 │   ├── test_evaluation_service.py
-│   └── test_memory_cache.py
+│   ├── test_memory_cache.py
+│   └── test_conversation_context.py
 └── integration/
     ├── test_tavily_search.py     # real Tavily call, gated behind RUN_INTEGRATION_TESTS=1
     ├── test_query_planner.py     # real Groq call, gated behind RUN_INTEGRATION_TESTS=1
@@ -266,10 +321,11 @@ tests/
 
 ## Documentation
 
-**Status:** Phases 0-14 complete - the full pipeline (plan → search →
+**Status:** Phases 0-15 complete - the full pipeline (plan → search →
 dedup → rank → context → generate → evaluate) runs as one real, cached,
-resilient, end-to-end call, plus a public live demo. See
-[`docs/roadmap.md`](docs/roadmap.md) for the phase-by-phase checklist.
+resilient, end-to-end call, plus a public live demo and conversation-aware
+follow-up resolution. See [`docs/roadmap.md`](docs/roadmap.md) for the
+phase-by-phase checklist.
 
 Full architecture, design decisions, and the phased roadmap live in
 [`docs/`](docs/) - see [`docs/architecture.md`](docs/architecture.md),
