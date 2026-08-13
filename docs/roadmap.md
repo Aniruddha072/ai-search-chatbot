@@ -4,7 +4,7 @@ Related docs: [Architecture](architecture.md) · [Decisions & tradeoffs](decisio
 
 Each phase produces something runnable/testable before moving on — no phase
 depends on an unbuilt future phase. Current status is tracked in the
-[root README](../README.md#current-progress); a build log for each completed
+[root README](../README.md#documentation); a build log for each completed
 phase (what was built, what was learned, challenges, commit hash) lives in
 [phases/](phases/).
 
@@ -56,6 +56,9 @@ Structured per-turn logging/timing, README, architecture/decisions docs finaliza
 
 **Phase 14 — Public Streamlit demo**
 `streamlit_app.py`, a minimal presentation-layer adapter over the same `ChatPipeline` (via a new `build_demo_pipeline()`), deployed free on Streamlit Community Cloud. Skips RAGAS scoring on the public surface (`NullEvaluator`) - the real evaluation pipeline stays available and documented through the CLI. A future production-style deployment could add `presentation/api.py` (FastAPI) in front of the same pipeline, but that's explicitly out of scope here - see the Phase 14 checklist below.
+
+**Phase 15 — Conversation-aware query resolution**
+`QueryPlanner.plan()` gains an optional `conversation` parameter so a follow-up question ("which one is cheapest?") resolves against a bounded, recent window of prior turns instead of being planned in isolation - folded into the existing Groq call rather than a second LLM call, with a cache-key fix so two different conversations can't collide on one cached plan. Proposed and designed in [GitHub issue #3](https://github.com/Aniruddha072/ai-search-chatbot/issues/3) before any code was written.
 
 ---
 
@@ -166,3 +169,13 @@ Each box is independently completable and independently testable.
 - [ ] Deploy to Streamlit Community Cloud (manual step: GitHub OAuth + secrets entry, done by the project owner, not part of this repo's code)
 
 **Future work, not implemented here:** a production-style deployment could add `presentation/api.py` (FastAPI) in front of the same `ChatPipeline`, with a separate frontend - reusing the pipeline exactly as `cli.py` and `streamlit_app.py` already do, with no pipeline logic duplicated.
+
+### Phase 15 — Conversation-aware query resolution
+- [x] `domain/entities.py`: `ConversationTurn`, `ConversationContext` - plain, immutable, same shape rules as `Query`/`Source`
+- [x] `application/query_planner.py`: optional `conversation` param on `plan()`, composed into the existing Groq prompt (no second LLM call); cache key folds in a digest of the conversation to prevent cross-conversation collisions
+- [x] `config/prompts/query_planner.txt`: reference-resolution instructions + worked example
+- [x] `application/pipeline.py`: `handle()`/`handle_streaming()`/`_prepare()` thread the optional `conversation` param through, defaulting to `None`
+- [x] `config/settings.py`: `conversation_history_turns` (default 2, `0` disables the feature)
+- [x] `presentation/conversation_context.py`: new, pure, unit-tested helper building a windowed `ConversationContext` from Streamlit's `session_state.messages`; wired into `streamlit_app.py`
+- [x] 19 new unit tests, all touched files at 100% statement coverage
+- [x] Live-verify against real Tavily/Groq: a real 5-question conversation, including a topic switch partway through - see [`docs/phases/phase15.md`](phases/phase15.md)

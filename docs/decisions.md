@@ -1224,6 +1224,94 @@ Reason:
   worth a custom persistent-event-loop workaround for the sake of a
   cache hit on a repeated identical question.
 
+### Decision 15.1
+
+Date: 2026-08-13
+
+Implemented:
+Reference resolution for follow-up questions ("which one", "its") folded
+into `QueryPlanner.plan()`'s existing Groq call via a new optional
+`conversation: ConversationContext | None = None` parameter, rather than
+a separate rewrite-the-question LLM call.
+
+Reason:
+- Resolving a pronoun against recent context is the same category of
+  work `QueryPlanner` already does (deciding what the user actually
+  wants before turning it into search queries), not a second, unrelated
+  task.
+- A dedicated rewrite call is the textbook RAG pattern, but it adds a
+  second Groq round-trip on every follow-up turn. Folding resolution
+  into the existing call keeps this at zero additional Groq calls per
+  turn, with or without conversation history present.
+- `conversation` defaults to `None` at every layer it passes through
+  (`QueryPlanner.plan()`, `ChatPipeline.handle()`/`handle_streaming()`/
+  `_prepare()`), so every existing caller (`cli.py`, every pre-Phase-15
+  test) gets byte-identical prompts and cache keys - verified directly
+  with a regression test asserting the composed prompt equals the raw
+  question when `conversation` is `None`.
+
+### Decision 15.2
+
+Date: 2026-08-13
+
+Implemented:
+A bounded sliding window of recent turns (default last 2, via new
+`Settings.conversation_history_turns`, `0` disables the feature), not
+full conversation history - each window entry is `(question, truncated
+answer)`, not just the question. `QueryPlanner`'s cache key now folds in
+a digest of the conversation when one is present.
+
+Reason:
+- Full history would grow the planning prompt linearly per turn (and
+  quadratically over a whole session) - a fixed window keeps prompt
+  growth roughly constant no matter how long a conversation runs.
+- The entity a follow-up actually needs ("VIT Pune", "cheapest") is
+  usually sitting in the *answer*, not the question - each window entry
+  stores a truncated answer (300 characters) for exactly this reason,
+  not just the question text.
+- The pre-existing cache key (`_normalize(user_query)` alone) would let
+  two different conversations' identical literal follow-ups ("which one
+  is cheapest?") collide and return one conversation's cached plan to
+  the other - a real correctness bug, not just a missed optimization.
+  Fixed by folding a SHA-256 digest of the conversation into the key
+  whenever one is present, while preserving the exact pre-Phase-15 key
+  when `conversation is None`.
+- `ConversationTurn`/`ConversationContext` were added to
+  `domain/entities.py` as plain, immutable dataclasses - the same
+  shape/dependency rules `Query`/`Source` already follow, not a new kind
+  of thing.
+
+### Decision 15.3
+
+Date: 2026-08-13
+
+Implemented:
+Live-verified against real Tavily/Groq (not just mocked unit tests),
+running the exact 5-question conversation from the original design
+proposal end-to-end through `build_demo_pipeline()`.
+
+Reason:
+- Unit tests with a mocked LLM provider can only prove the plumbing
+  (conversation gets threaded through, the prompt gets composed, the
+  cache key changes) - not whether the real model actually resolves
+  references correctly given the updated prompt. That needed a real run.
+- All five turns resolved correctly: "which one is cheapest?" correctly
+  expanded against every college named in turn 1; "what about its
+  placement record?" correctly resolved "its" to the specific college
+  turn 2 had identified as cheapest; a later topic-continuation question
+  ("What about VIT?") was answered as a sensible comparison against the
+  two topics actually present in the (2-turn) window rather than a bare
+  restatement, showing the sliding window correctly shifts the effective
+  topic forward as older turns age out; the final cutoff question
+  correctly resolved against both colleges still in scope at that point.
+- `build_conversation_context()` (`src/presentation/conversation_context.py`)
+  was deliberately split out of `streamlit_app.py` rather than defined
+  inline there - that file runs top-level Streamlit calls on import
+  (`st.set_page_config()`, `st.chat_input()`, etc.), so a pure function
+  living there couldn't be unit-tested without executing those outside a
+  real Streamlit script run. Matches Phase 12's precedent of extracting
+  `cli.py` helpers specifically so they're testable in isolation.
+
 ---
 
 ## 1. Key design decisions
