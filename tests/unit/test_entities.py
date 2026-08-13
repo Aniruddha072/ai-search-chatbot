@@ -2,7 +2,15 @@ import dataclasses
 
 import pytest
 
-from src.domain.entities import Answer, EvaluationResult, Query, SearchResult, Source
+from src.domain.entities import (
+    Answer,
+    ConversationContext,
+    ConversationTurn,
+    EvaluationResult,
+    Query,
+    SearchResult,
+    Source,
+)
 
 
 def make_query(n: int) -> Query:
@@ -78,3 +86,25 @@ def test_evaluation_result_defaults_to_all_none():
     assert result.answer_relevancy is None
     assert result.context_precision is None
     assert result.error is None
+
+
+def test_conversation_context_defaults_to_no_turns():
+    context = ConversationContext()
+
+    assert context.turns == ()
+
+
+def test_conversation_turn_holds_question_and_answer_summary():
+    turn = ConversationTurn(
+        question="which one is cheapest?", answer_summary="COEP is the cheapest."
+    )
+
+    assert turn.question == "which one is cheapest?"
+    assert turn.answer_summary == "COEP is the cheapest."
+
+
+def test_conversation_context_is_immutable():
+    context = ConversationContext()
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        context.turns = (ConversationTurn(question="q", answer_summary="a"),)

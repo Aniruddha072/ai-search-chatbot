@@ -5,6 +5,7 @@ import pytest
 
 from src.application.query_planner import QueryPlanner
 from src.config.prompts.query_planning import QueryPlanResponse
+from src.domain.entities import ConversationContext, ConversationTurn
 from src.domain.interfaces import Cache, LLMProvider
 from src.infrastructure.cache.memory_cache import InMemoryCache
 
@@ -15,12 +16,14 @@ class FakeLLMProvider(LLMProvider):
         self._raise_exc = raise_exc
         self._delay = delay
         self.call_count = 0
+        self.last_prompt: str | None = None
 
     async def generate(self, prompt: str, *, system_prompt: str | None = None) -> str:
         return "unused"
 
     async def generate_structured(self, prompt, schema, *, system_prompt=None):
         self.call_count += 1
+        self.last_prompt = prompt
         if self._delay:
             await asyncio.sleep(self._delay)
         if self._raise_exc:
@@ -154,4 +157,97 @@ async def test_fallback_plans_are_not_cached():
 
     # No caching of the fallback path means the LLM is retried every time,
     # not silently stuck returning a degraded plan forever.
+    assert llm_provider.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_plan_without_conversation_argument_behaves_identically_to_explicit_none():
+    response = QueryPlanResponse(intent="i", complexity="simple", queries=["q1"])
+    llm_provider = FakeLLMProvider(structured_result=response)
+    planner = make_planner(llm_provider)
+
+    await planner.plan("best CE colleges in Pune")
+    await planner.plan("best CE colleges in Pune", conversation=None)
+
+    # Same cache entry either way - conversation=None is the implicit
+    # default, so omitting it must be completely indistinguishable.
+    assert llm_provider.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_plan_with_no_conversation_sends_the_raw_question_as_the_prompt():
+    response = QueryPlanResponse(intent="i", complexity="simple", queries=["q1"])
+    llm_provider = FakeLLMProvider(structured_result=response)
+    planner = make_planner(llm_provider)
+
+    await planner.plan("best CE colleges in Pune")
+
+    assert llm_provider.last_prompt == "best CE colleges in Pune"
+
+
+@pytest.mark.asyncio
+async def test_plan_with_conversation_includes_recent_turns_in_the_prompt():
+    response = QueryPlanResponse(intent="i", complexity="simple", queries=["q1"])
+    llm_provider = FakeLLMProvider(structured_result=response)
+    planner = make_planner(llm_provider)
+    conversation = ConversationContext(
+        turns=(
+            ConversationTurn(
+                question="best colleges in Pune?", answer_summary="COEP, VIT, PCCOE."
+            ),
+        )
+    )
+
+    await planner.plan("which one is cheapest?", conversation=conversation)
+
+    assert "best colleges in Pune?" in llm_provider.last_prompt
+    assert "COEP, VIT, PCCOE." in llm_provider.last_prompt
+    assert "which one is cheapest?" in llm_provider.last_prompt
+
+
+@pytest.mark.asyncio
+async def test_repeated_question_with_identical_conversation_hits_the_cache():
+    response = QueryPlanResponse(intent="i", complexity="simple", queries=["q1"])
+    llm_provider = FakeLLMProvider(structured_result=response)
+    planner = make_planner(llm_provider)
+    conversation = ConversationContext(
+        turns=(
+            ConversationTurn(
+                question="best colleges in Pune?", answer_summary="COEP, VIT, PCCOE."
+            ),
+        )
+    )
+
+    await planner.plan("which one is cheapest?", conversation=conversation)
+    await planner.plan("which one is cheapest?", conversation=conversation)
+
+    assert llm_provider.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_same_question_with_different_conversations_does_not_share_a_cache_entry():
+    response = QueryPlanResponse(intent="i", complexity="simple", queries=["q1"])
+    llm_provider = FakeLLMProvider(structured_result=response)
+    planner = make_planner(llm_provider)
+    conversation_a = ConversationContext(
+        turns=(
+            ConversationTurn(
+                question="best colleges in Pune?", answer_summary="COEP, VIT, PCCOE."
+            ),
+        )
+    )
+    conversation_b = ConversationContext(
+        turns=(
+            ConversationTurn(
+                question="best colleges in Mumbai?", answer_summary="VJTI, ICT, SPIT."
+            ),
+        )
+    )
+
+    await planner.plan("which one is cheapest?", conversation=conversation_a)
+    await planner.plan("which one is cheapest?", conversation=conversation_b)
+
+    # Same literal follow-up, two different conversations - must not
+    # collide on one cache entry, or one conversation's plan would leak
+    # into the other.
     assert llm_provider.call_count == 2

@@ -32,7 +32,7 @@ from src.application.deduplicator import Deduplicator
 from src.application.evaluation_service import EvaluationService
 from src.application.query_planner import QueryPlanner
 from src.application.search_orchestrator import SearchOrchestrator
-from src.domain.entities import Answer, Query, Source
+from src.domain.entities import Answer, ConversationContext, Query, Source
 from src.domain.interfaces import Ranker
 from src.utils.logging import get_logger
 
@@ -78,11 +78,13 @@ class ChatPipeline:
         self._max_results_per_query = max_results_per_query
         self._max_query_length = max_query_length
 
-    async def handle(self, user_query: str) -> Answer:
+    async def handle(
+        self, user_query: str, conversation: ConversationContext | None = None
+    ) -> Answer:
         turn_start = time.monotonic()
         timings: dict[str, float] = {}
 
-        prepared = await self._prepare(user_query, timings)
+        prepared = await self._prepare(user_query, timings, conversation)
         if isinstance(prepared, Answer):
             _log_turn_timings(timings, turn_start)
             return prepared
@@ -118,11 +120,13 @@ class ChatPipeline:
         _log_turn_timings(timings, turn_start)
         return replace(answer, evaluation=evaluation)
 
-    async def handle_streaming(self, user_query: str) -> "PipelineStream":
+    async def handle_streaming(
+        self, user_query: str, conversation: ConversationContext | None = None
+    ) -> "PipelineStream":
         turn_start = time.monotonic()
         timings: dict[str, float] = {}
 
-        prepared = await self._prepare(user_query, timings)
+        prepared = await self._prepare(user_query, timings, conversation)
         if isinstance(prepared, Answer):
             _log_turn_timings(timings, turn_start)
             return PipelineStream.completed(prepared)
@@ -139,7 +143,10 @@ class ChatPipeline:
         )
 
     async def _prepare(
-        self, user_query: str, timings: dict[str, float]
+        self,
+        user_query: str,
+        timings: dict[str, float],
+        conversation: ConversationContext | None = None,
     ) -> Answer | tuple[Query, tuple[Source, ...]]:
         """Validation through context-building - the prefix shared by
         handle() and handle_streaming(). Returns an already-final degraded
@@ -157,7 +164,9 @@ class ChatPipeline:
                 f"{self._max_query_length} characters.",
             )
 
-        query = await _timed(timings, "planning", self._query_planner.plan(stripped_query))
+        query = await _timed(
+            timings, "planning", self._query_planner.plan(stripped_query, conversation)
+        )
         raw_results = await _timed(
             timings,
             "search",

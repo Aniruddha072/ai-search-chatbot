@@ -62,6 +62,34 @@ def test_settings_rejects_out_of_range_context_values(monkeypatch, field, invali
         Settings(_env_file=None)
 
 
+def test_settings_conversation_history_turns_defaults_to_two(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-key")
+    monkeypatch.setenv("GROQ_API_KEY", "groq-test-key")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.conversation_history_turns == 2
+
+
+def test_settings_rejects_negative_conversation_history_turns(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-key")
+    monkeypatch.setenv("GROQ_API_KEY", "groq-test-key")
+    monkeypatch.setenv("CONVERSATION_HISTORY_TURNS", "-1")
+
+    with pytest.raises(Exception):
+        Settings(_env_file=None)
+
+
+def test_settings_allows_conversation_history_turns_of_zero(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-key")
+    monkeypatch.setenv("GROQ_API_KEY", "groq-test-key")
+    monkeypatch.setenv("CONVERSATION_HISTORY_TURNS", "0")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.conversation_history_turns == 0
+
+
 def test_get_settings_is_cached(monkeypatch):
     monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-key")
     monkeypatch.setenv("GROQ_API_KEY", "groq-test-key")
