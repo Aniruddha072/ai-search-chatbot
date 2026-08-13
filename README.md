@@ -155,7 +155,9 @@ can redirect just the logs: `python -m src.presentation.cli 2>chat.log`.
 
 ## Live Demo
 
-**[Live demo URL - pending deployment]**
+**[ai-chatbot-search.streamlit.app](https://ai-chatbot-search.streamlit.app/)**
+
+![AI Search Chatbot - a live conversation showing a question about the best engineering colleges in Pune, a grounded cited answer, and a self-contained follow-up question about COEP's tuition fee](docs/assets/streamlit-demo-screenshot.jpg)
 
 A public Streamlit chat UI over the same `ChatPipeline` the CLI uses -
 built for Phase 14 as a simple, free presentation layer, not a rebuild of
