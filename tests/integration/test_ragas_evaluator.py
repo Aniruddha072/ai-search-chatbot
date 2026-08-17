@@ -18,7 +18,7 @@ pytestmark = pytest.mark.skipif(
 async def test_real_ragas_evaluator_scores_a_grounded_answer():
     load_dotenv()
     evaluator = RagasEvaluator(
-        api_key=os.environ["GROQ_API_KEY"], model="llama-3.3-70b-versatile"
+        api_key=os.environ["GROQ_API_KEY"], model="openai/gpt-oss-120b"
     )
 
     result = await evaluator.evaluate(

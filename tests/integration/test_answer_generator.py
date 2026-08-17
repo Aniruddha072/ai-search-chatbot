@@ -22,8 +22,8 @@ async def test_real_answer_generator_produces_a_grounded_cited_answer():
     load_dotenv()
     llm = GroqClient(
         api_key=os.environ["GROQ_API_KEY"],
-        fast_model="llama-3.1-8b-instant",
-        capable_model="llama-3.3-70b-versatile",
+        fast_model="openai/gpt-oss-20b",
+        capable_model="openai/gpt-oss-120b",
     )
     generator = AnswerGenerator(llm, timeout_seconds=15.0)
     query = Query(
@@ -59,8 +59,8 @@ async def test_real_answer_generator_streams_and_matches_build_answer():
     load_dotenv()
     llm = GroqClient(
         api_key=os.environ["GROQ_API_KEY"],
-        fast_model="llama-3.1-8b-instant",
-        capable_model="llama-3.3-70b-versatile",
+        fast_model="openai/gpt-oss-20b",
+        capable_model="openai/gpt-oss-120b",
     )
     generator = AnswerGenerator(llm, timeout_seconds=15.0)
     query = Query(
