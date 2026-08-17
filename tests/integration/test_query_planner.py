@@ -24,8 +24,8 @@ async def test_real_query_planner_produces_a_valid_query():
     load_dotenv()
     llm = GroqClient(
         api_key=os.environ["GROQ_API_KEY"],
-        fast_model="llama-3.1-8b-instant",
-        capable_model="llama-3.3-70b-versatile",
+        fast_model="openai/gpt-oss-20b",
+        capable_model="openai/gpt-oss-120b",
     )
     planner = QueryPlanner(llm, timeout_seconds=15.0, cache=InMemoryCache(), cache_ttl_seconds=60)
 

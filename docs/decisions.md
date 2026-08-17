@@ -1312,6 +1312,50 @@ Reason:
   real Streamlit script run. Matches Phase 12's precedent of extracting
   `cli.py` helpers specifically so they're testable in isolation.
 
+### Decision 16.1
+
+Date: 2026-08-17
+
+Implemented:
+Both Groq models swapped: `groq_fast_model` from `llama-3.1-8b-instant` to
+`openai/gpt-oss-20b`, and `groq_capable_model` from `llama-3.3-70b-versatile`
+to `openai/gpt-oss-120b`. Not a roadmap phase, just a maintenance migration
+forced by Groq's own deprecation schedule.
+
+Reason:
+- Groq is decommissioning both models on August 16, 2026, confirmed by
+  reading their own deprecations page (console.groq.com/docs/deprecations)
+  directly rather than trusting the shutdown date secondhand - it lists
+  `openai/gpt-oss-20b` and `openai/gpt-oss-120b` as the recommended
+  replacements for exactly these two models, so this migration takes the
+  path Groq itself points to rather than picking a different pair.
+- Every hardcoded occurrence of the old model strings in live code and
+  tests was grepped and updated: `settings.py` defaults, `.env.example`,
+  and the three integration tests that construct a `GroqClient` directly
+  with an explicit model name instead of going through `Settings`. Mentions
+  inside `docs/decisions.md`'s own earlier entries and the Phase 5/6/12
+  build logs were left alone on purpose - they're dated records of what
+  was true about the old models at the time, not live configuration, and
+  rewriting them would misattribute those findings to models they were
+  never run against.
+- Verified live against the real Groq API before trusting the swap, not
+  just the unit suite (which mocks the LLM provider and can't catch a
+  model-specific quirk): `generate_structured()` against
+  `openai/gpt-oss-20b` returned a valid `QueryPlanResponse` in about a
+  second, and `generate_stream()` against `openai/gpt-oss-120b` streamed
+  a real multi-chunk answer end to end. Worth recording as a genuine
+  gotcha check rather than an assumption: this project already hit a real
+  structured-output incompatibility once before switching *to* the old
+  models (Decision 1.5's phase log, Phase 5 - the old models don't support
+  strict `response_format: json_schema`, only the `openai/gpt-oss` family
+  does), so there was real reason to worry the reverse direction might
+  break something too. It didn't - both new models worked cleanly through
+  the existing `json_object` mode with no refusals and no shape
+  differences from before.
+- All 188 unit tests pass unchanged after the swap - nothing in the
+  mocked test suite depended on the literal old model strings except the
+  three integration tests already covered above.
+
 ---
 
 ## 1. Key design decisions
