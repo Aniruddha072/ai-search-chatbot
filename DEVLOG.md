@@ -138,3 +138,48 @@ GitHub issue #3, and PR #4 (merged, closed #3).
 **State at end of session:** see [`docs/session-handoff.md`](docs/session-handoff.md) (local-only) for exact resume-point details.
 
 ---
+
+## 2026-08-17 — Groq model migration ahead of the Aug 16 deprecation deadline
+
+Short maintenance session, not tied to a roadmap phase. Groq announced
+`llama-3.1-8b-instant` and `llama-3.3-70b-versatile` (used as
+`groq_fast_model`/`groq_capable_model`) would be decommissioned August 16,
+2026; migrated both to Groq's own recommended replacements before the
+deadline.
+
+**Commits:** `0f7462b` (`fix: migrate off Groq models deprecated for Aug
+16, 2026 shutdown`), merged to `main` via PR #5 (`--rebase`).
+
+**Highlights worth remembering:**
+- Verified the deprecation and the recommended replacements directly against Groq's own docs page rather than trusting the claim secondhand: `openai/gpt-oss-20b` replaces `llama-3.1-8b-instant`, `openai/gpt-oss-120b` replaces `llama-3.3-70b-versatile`.
+- Scoped the edit precisely: live code, tests, and `.env.example` updated; historical mentions in `docs/decisions.md`'s existing entries and the Phase 5/6/12 build logs left untouched on purpose, since they're dated records of what was true about the old models at the time.
+- Verified live against the real Groq API before trusting the swap - both `generate_structured()` and `generate_stream()` worked cleanly on the new models with no schema or streaming differences from before, worth checking given this project had already hit one real structured-output incompatibility switching *to* the old models originally (Decision 1.5's phase log).
+- Also ran a real RAGAS evaluation against `openai/gpt-oss-120b` out of curiosity about the public demo's `NullEvaluator` tradeoff (Decision 14.2) - latency came back at ~14.6s, essentially unchanged from the old model, so the migration doesn't change that calculus.
+- Documented as Decision 16.1 rather than a new phase - this was maintenance forced by an external deprecation schedule, not new functionality.
+
+**State at end of session:** merged to `main`, live demo redeployed on the new models.
+
+---
+
+## 2026-08-20 — A live-demo bug report that turned out not to be a bug
+
+Investigated a real user-reported failure on the live demo: a follow-up
+question ("What about COEP?" right after asking about a different,
+similarly-named college) came back with a refusal and no sources, right
+after the Aug 17 Groq migration went live. Spent the session tracking
+down which of three possible causes was responsible before touching any
+code.
+
+**Commits:** `4314905` (`docs: record COEP follow-up investigation as
+stale-deploy state, not a planner bug`), merged to `main`.
+
+**Highlights worth remembering:**
+- Found and flagged a real gap along the way: `cli.py`'s `_handle_turn()` never threads `ConversationContext` between turns at all, unlike `streamlit_app.py` - meaning a literal CLI reproduction wouldn't have exercised the same code path as the actual live failure. Reproduced instead through `build_demo_pipeline()` directly with a manually built `ConversationContext` matching what production builds.
+- Added temporary debug logging at two points in `ChatPipeline._prepare()` (post-planning sub-queries, pre-generation source list) specifically to distinguish three failure modes: the planner falling back after an internal error, the planner resolving the follow-up badly, or the planner and retrieval both working while generation refused anyway.
+- 7 live reproduction attempts (4 with conversation context, 3 as a no-context control) all succeeded - the reported failure never reproduced locally, and none of the three hypothesized causes ever showed up.
+- Rebooting the live app and re-running the exact reported question sequence twice more, directly against the live demo, also succeeded both times - pointing to stale per-process state left over from the migration's redeploy rather than a defect in the query planner or generation prompts, the same class of issue as a real incident from Phase 15 (`ImportError` after merge, fixed by a manual reboot).
+- No prompt files were touched, since nothing pointed at the actual planning or generation logic being wrong. Documented as Decision 16.2; debug logging was removed before committing.
+
+**State at end of session:** merged to `main`. Operational lesson going forward: reboot the Streamlit app after every redeploy, not just when something visibly throws.
+
+---

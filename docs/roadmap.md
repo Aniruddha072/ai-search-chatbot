@@ -166,7 +166,7 @@ Each box is independently completable and independently testable.
 - [x] Root `requirements.txt` for Streamlit Cloud's install step, deliberately excluding ragas/numpy/datasets/langchain/etc
 - [x] README: Live Demo section + dedicated Evaluation section documenting Faithfulness/Context Precision, why the public demo skips them, and the live-verified evaluation result
 - [x] Live-verify locally: real Tavily/Groq calls through the Streamlit UI, including a second turn in the same session (this caught and fixed a real event-loop-reuse bug - see Decision 14.3)
-- [ ] Deploy to Streamlit Community Cloud (manual step: GitHub OAuth + secrets entry, done by the project owner, not part of this repo's code)
+- [x] Deploy to Streamlit Community Cloud (manual step: GitHub OAuth + secrets entry, done by the project owner, not part of this repo's code)
 
 **Future work, not implemented here:** a production-style deployment could add `presentation/api.py` (FastAPI) in front of the same `ChatPipeline`, with a separate frontend - reusing the pipeline exactly as `cli.py` and `streamlit_app.py` already do, with no pipeline logic duplicated.
 
