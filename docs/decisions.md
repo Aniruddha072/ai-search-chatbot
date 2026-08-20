@@ -1356,6 +1356,68 @@ Reason:
   mocked test suite depended on the literal old model strings except the
   three integration tests already covered above.
 
+### Decision 16.2
+
+Date: 2026-08-20
+
+Implemented:
+No code or prompt changes. Investigated a live-demo report of a broken
+follow-up turn and traced it to stale deployment state, not a planner or
+generation defect.
+
+Reason:
+- Reported symptom: on the public Streamlit demo, right after the Decision
+  16.1 model migration went live, asking "Where is PCCOE in Pune located?"
+  answered correctly, but the immediate follow-up "What about COEP?"
+  returned "I'm sorry, but the supplied sources do not contain any
+  information about COEP" with no Sources section at all.
+- `Answer.sources` is only populated from `[N]` citation markers the model
+  actually emits (`AnswerGenerator._extract_cited_sources()`), so a missing
+  Sources section is a downstream symptom of the model not citing anything,
+  not evidence on its own about what the planner or `ContextBuilder` did
+  upstream. Two debug checkpoints were added to `ChatPipeline._prepare()`
+  (logging `sub_queries`/`intent` right after planning, and source
+  count/titles right after `ContextBuilder.build()`) specifically to tell
+  apart three hypotheses: the planner falling back to the literal follow-up
+  text after an internal failure, the planner resolving the follow-up into
+  a bad sub-query set despite running cleanly, or the planner and retrieval
+  both working and the generation model refusing anyway despite good
+  sources.
+- The reported two-turn sequence was run through `build_demo_pipeline()`
+  (the same composition root the live demo uses) with a manually
+  constructed `ConversationContext` matching what
+  `conversation_context.py` builds from real session state - not through
+  `cli.py`, which was found not to thread `ConversationContext` between
+  turns at all (`_handle_turn()` calls `handle_streaming(user_query)` with
+  no second argument), so it wouldn't have exercised the same code path
+  the demo runs. 7 live attempts total (4 with conversation context built
+  this way, 3 with a no-context control) all succeeded: correctly
+  COEP-focused sub-queries, 5-6 genuinely relevant sources at the
+  checkpoint, and a properly generated, cited answer every time. The
+  reported failure never reproduced locally.
+- After manually rebooting the live Streamlit app, the exact same
+  PCCOE-then-COEP sequence was run twice more directly against the live
+  demo (fresh session each time) and succeeded both times, matching the
+  local reproduction results exactly. This points to the same class of
+  issue already documented once before on this platform (Phase 15's
+  `ImportError` after merge, fixed by a manual reboot): `get_settings()`
+  is `@lru_cache`'d per process, so a Streamlit Cloud process that didn't
+  fully restart after the Decision 16.1 redeploy could have kept serving a
+  stale mix of old and new state for some window after the merge, rather
+  than the planner or generation prompts themselves ever behaving
+  incorrectly.
+- No prompt files were touched. Adding a worked example to
+  `query_planner.txt` or changing `answer_generation.txt` would have been
+  fixing a symptom that no evidence ties to the actual planning or
+  generation logic - every real run, both local and live post-reboot,
+  resolved and answered the follow-up correctly. The operational lesson
+  is procedural: reboot the Streamlit app after every redeploy, not just
+  when an error is visibly thrown, since a stale process can serve
+  degraded behavior silently instead of erroring.
+- Temporary debug logging added for this investigation was removed from
+  `ChatPipeline._prepare()` before this entry was written; the full unit
+  suite (188 tests) passes unchanged.
+
 ---
 
 ## 1. Key design decisions
